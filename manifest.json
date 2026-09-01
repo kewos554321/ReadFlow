@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "ReadFlow",
+  "version": "0.1.0",
+  "description": "Context-aware English reading assistant for Google Play Books",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://play.google.com/*",
+    "https://api.anthropic.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://play.google.com/books/reader*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ReadFlow"
+  }
+}
