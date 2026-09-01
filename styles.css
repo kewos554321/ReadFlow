@@ -1,0 +1,58 @@
+.readflow-icon {
+  position: absolute;
+  z-index: 2147483647;
+  background: #1a73e8;
+  color: white;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  user-select: none;
+  transform: translateX(-50%);
+  transition: transform 0.1s, background 0.1s;
+}
+
+.readflow-icon:hover {
+  background: #1558b0;
+  transform: translateX(-50%) scale(1.1);
+}
+
+.readflow-tooltip {
+  position: absolute;
+  z-index: 2147483646;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: 10px;
+  padding: 12px 16px;
+  max-width: 320px;
+  min-width: 200px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%) translateY(-100%);
+  pointer-events: auto;
+}
+
+.readflow-tooltip strong { color: #89b4fa; }
+
+.readflow-tooltip code {
+  background: #313244;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #f9e2af;
+}
+
+.readflow-tooltip ul { margin: 4px 0; padding-left: 16px; }
+.readflow-tooltip li { margin: 2px 0; }
+.readflow-tooltip em { color: #a6e3a1; font-style: italic; }
+
+.readflow-loading { color: #89b4fa; font-style: italic; }
+.readflow-error { color: #f38ba8; }
