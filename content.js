@@ -163,16 +163,22 @@ document.addEventListener('mousedown', makeMouseDownHandler());
 
 // ── Attach to book content iframes ───────────────────────────────
 function attachToIframe(iframe) {
+  if (iframe._readflowAttached) return;
   try {
     const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc || !doc.body) return;
-    if (iframe._readflowAttached) return;
+
+    // iframe exists but content not loaded yet — wait for load event
+    if (!doc || !doc.body || doc.readyState === 'loading') {
+      iframe.addEventListener('load', () => attachToIframe(iframe), { once: true });
+      return;
+    }
+
     iframe._readflowAttached = true;
-    console.log('[ReadFlow] attached to iframe:', iframe.src || '(about:blank)');
+    console.log('[ReadFlow] attached to iframe:', iframe.src || '(about:blank)', '— readyState:', doc.readyState);
     doc.addEventListener('mouseup', makeMouseUpHandler(iframe));
     doc.addEventListener('mousedown', makeMouseDownHandler());
   } catch (e) {
-    // cross-origin iframe — cannot access
+    console.log('[ReadFlow] iframe access blocked:', e.message);
   }
 }
 
@@ -180,8 +186,10 @@ function attachToAllIframes() {
   document.querySelectorAll('iframe').forEach(attachToIframe);
 }
 
-// Try immediately, then watch for iframes added later
+// Try immediately, after short delays (Play Books renders iframes late), and via MutationObserver
 attachToAllIframes();
+setTimeout(attachToAllIframes, 1000);
+setTimeout(attachToAllIframes, 3000);
 
 const observer = new MutationObserver(() => {
   removeIcon();
