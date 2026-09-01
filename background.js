@@ -23,41 +23,43 @@ const SYSTEM_PROMPT = `# Role
 **🏛️ 背景知識補充 (Schema Context)** *(可選)*
 * 一句話補充涉及的文化、歷史或專業背景知識。`;
 
-function buildMessages(selectedText, surroundingParagraph) {
-  return [{
-    role: 'user',
-    content: `Selected text: "${selectedText}"\n\nSurrounding context:\n${surroundingParagraph}`
-  }];
+const GEMINI_MODEL = 'gemini-2.0-flash';
+
+function buildRequestBody(selectedText, surroundingParagraph) {
+  return {
+    system_instruction: {
+      parts: [{ text: SYSTEM_PROMPT }]
+    },
+    contents: [{
+      role: 'user',
+      parts: [{
+        text: `Selected text: "${selectedText}"\n\nSurrounding context:\n${surroundingParagraph}`
+      }]
+    }],
+    generationConfig: { maxOutputTokens: 600 }
+  };
 }
 
-async function callClaudeApi(apiKey, selectedText, surroundingParagraph) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+async function callGeminiApi(apiKey, selectedText, surroundingParagraph) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 600,
-      system: SYSTEM_PROMPT,
-      messages: buildMessages(selectedText, surroundingParagraph),
-    }),
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(buildRequestBody(selectedText, surroundingParagraph)),
   });
 
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.error?.message || 'API request failed');
   }
-  return data.content[0].text;
+  return data.candidates[0].content.parts[0].text;
 }
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== 'lookup') return false;
     const { selectedText, surroundingParagraph, apiKey } = message;
-    callClaudeApi(apiKey, selectedText, surroundingParagraph)
+    callGeminiApi(apiKey, selectedText, surroundingParagraph)
       .then((result) => sendResponse({ result }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -65,5 +67,5 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { buildMessages, callClaudeApi };
+  module.exports = { buildRequestBody, callGeminiApi };
 }

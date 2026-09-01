@@ -1,41 +1,38 @@
-const { buildMessages, callClaudeApi } = require('../background.js');
+const { buildRequestBody, callGeminiApi } = require('../background.js');
 
-test('buildMessages formats selected text and context correctly', () => {
-  const messages = buildMessages('ephemeral', 'He was an ephemeral figure in history.');
-  expect(messages).toEqual([{
+test('buildRequestBody formats selected text and context correctly', () => {
+  const body = buildRequestBody('ephemeral', 'He was an ephemeral figure in history.');
+  expect(body.contents).toEqual([{
     role: 'user',
-    content: 'Selected text: "ephemeral"\n\nSurrounding context:\nHe was an ephemeral figure in history.'
+    parts: [{ text: 'Selected text: "ephemeral"\n\nSurrounding context:\nHe was an ephemeral figure in history.' }]
   }]);
+  expect(body.system_instruction.parts[0].text).toContain('SLA');
 });
 
-test('callClaudeApi calls Anthropic endpoint with correct headers', async () => {
+test('callGeminiApi calls Gemini endpoint with API key in URL', async () => {
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ content: [{ text: '**Result**' }] })
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text: '**Result**' }] } }]
+    })
   });
 
-  const result = await callClaudeApi('sk-ant-test', 'ephemeral', 'He was an ephemeral figure.');
+  const result = await callGeminiApi('AIza-test', 'ephemeral', 'He was an ephemeral figure.');
 
   expect(global.fetch).toHaveBeenCalledWith(
-    'https://api.anthropic.com/v1/messages',
-    expect.objectContaining({
-      method: 'POST',
-      headers: expect.objectContaining({
-        'x-api-key': 'sk-ant-test',
-        'anthropic-version': '2023-06-01',
-      })
-    })
+    expect.stringContaining('AIza-test'),
+    expect.objectContaining({ method: 'POST' })
   );
   expect(result).toBe('**Result**');
 });
 
-test('callClaudeApi throws on API error', async () => {
+test('callGeminiApi throws on API error', async () => {
   global.fetch = jest.fn().mockResolvedValue({
     ok: false,
     json: async () => ({ error: { message: 'Invalid API key' } })
   });
 
   await expect(
-    callClaudeApi('bad-key', 'word', 'context')
+    callGeminiApi('bad-key', 'word', 'context')
   ).rejects.toThrow('Invalid API key');
 });

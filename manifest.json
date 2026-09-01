@@ -6,7 +6,7 @@
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://play.google.com/*",
-    "https://api.anthropic.com/*"
+    "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
