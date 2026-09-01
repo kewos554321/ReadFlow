@@ -1,3 +1,5 @@
+console.log('[ReadFlow] content script loaded on:', window.location.href);
+
 // ── Inlined: isBlockElement + extractContext ──────────────────────
 const BLOCK_TAGS = ['P', 'DIV', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'LI', 'TD'];
 
@@ -5,8 +7,8 @@ function isBlockElement(el) {
   return BLOCK_TAGS.includes(el.tagName);
 }
 
-function extractContext() {
-  const selection = window.getSelection();
+function extractContext(win) {
+  const selection = win.getSelection();
   const selectedText = selection.toString().trim();
   if (!selectedText || selection.rangeCount === 0) return null;
 
@@ -113,38 +115,78 @@ function triggerLookup(context, rect) {
   });
 }
 
-// ── Event listeners ───────────────────────────────────────────────
-function onMouseUp(e) {
-  if (e.button !== 0) return;
-  if (floatingIcon?.contains(e.target) || tooltip?.contains(e.target)) return;
+// ── Event handlers (iframe-aware) ─────────────────────────────────
+function makeMouseUpHandler(iframeEl) {
+  return function onMouseUp(e) {
+    if (e.button !== 0) return;
 
-  setTimeout(() => {
-    const context = extractContext();
-    if (!context) { removeIcon(); return; }
+    setTimeout(() => {
+      const win = iframeEl ? iframeEl.contentWindow : window;
+      const context = extractContext(win);
+      if (!context) { removeIcon(); return; }
 
-    const selection = window.getSelection();
-    if (selection.rangeCount === 0) return;
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
+      const selection = win.getSelection();
+      if (selection.rangeCount === 0) return;
+      const selRect = selection.getRangeAt(0).getBoundingClientRect();
 
-    pendingContext = context;
-    pendingRect = rect;
-    createIcon(rect);
-  }, 10);
+      // Offset selection rect by iframe's position in the outer document
+      let rect = selRect;
+      if (iframeEl) {
+        const iframeRect = iframeEl.getBoundingClientRect();
+        rect = {
+          left: selRect.left + iframeRect.left,
+          top: selRect.top + iframeRect.top,
+          width: selRect.width,
+          right: selRect.right + iframeRect.left,
+          bottom: selRect.bottom + iframeRect.top,
+        };
+      }
+
+      pendingContext = context;
+      pendingRect = rect;
+      createIcon(rect);
+    }, 10);
+  };
 }
 
-function onMouseDown(e) {
-  if (floatingIcon?.contains(e.target) || tooltip?.contains(e.target)) return;
-  removeIcon();
-  removeTooltip();
+function makeMouseDownHandler() {
+  return function onMouseDown(e) {
+    if (floatingIcon?.contains(e.target) || tooltip?.contains(e.target)) return;
+    removeIcon();
+    removeTooltip();
+  };
 }
 
-document.addEventListener('mouseup', onMouseUp);
-document.addEventListener('mousedown', onMouseDown);
+// ── Attach to outer document ──────────────────────────────────────
+document.addEventListener('mouseup', makeMouseUpHandler(null));
+document.addEventListener('mousedown', makeMouseDownHandler());
 
-// ── MutationObserver: handle page turns ───────────────────────────
+// ── Attach to book content iframes ───────────────────────────────
+function attachToIframe(iframe) {
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc || !doc.body) return;
+    if (iframe._readflowAttached) return;
+    iframe._readflowAttached = true;
+    console.log('[ReadFlow] attached to iframe:', iframe.src || '(about:blank)');
+    doc.addEventListener('mouseup', makeMouseUpHandler(iframe));
+    doc.addEventListener('mousedown', makeMouseDownHandler());
+  } catch (e) {
+    // cross-origin iframe — cannot access
+  }
+}
+
+function attachToAllIframes() {
+  document.querySelectorAll('iframe').forEach(attachToIframe);
+}
+
+// Try immediately, then watch for iframes added later
+attachToAllIframes();
+
 const observer = new MutationObserver(() => {
   removeIcon();
   removeTooltip();
+  attachToAllIframes();
 });
 
-observer.observe(document.body, { childList: true, subtree: false });
+observer.observe(document.body, { childList: true, subtree: true });
