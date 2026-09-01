@@ -1,4 +1,4 @@
-console.log('[ReadFlow] content script loaded on:', window.location.href);
+console.log('[ReadFlow] loaded in:', window.location.href);
 
 // ── Inlined: isBlockElement + extractContext ──────────────────────
 const BLOCK_TAGS = ['P', 'DIV', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'LI', 'TD'];
@@ -7,8 +7,8 @@ function isBlockElement(el) {
   return BLOCK_TAGS.includes(el.tagName);
 }
 
-function extractContext(win) {
-  const selection = win.getSelection();
+function extractContext() {
+  const selection = window.getSelection();
   const selectedText = selection.toString().trim();
   if (!selectedText || selection.rangeCount === 0) return null;
 
@@ -115,86 +115,38 @@ function triggerLookup(context, rect) {
   });
 }
 
-// ── Event handlers (iframe-aware) ─────────────────────────────────
-function makeMouseUpHandler(iframeEl) {
-  return function onMouseUp(e) {
-    if (e.button !== 0) return;
+// ── Event listeners ───────────────────────────────────────────────
+function onMouseUp(e) {
+  if (e.button !== 0) return;
+  if (floatingIcon?.contains(e.target) || tooltip?.contains(e.target)) return;
 
-    setTimeout(() => {
-      const win = iframeEl ? iframeEl.contentWindow : window;
-      const context = extractContext(win);
-      if (!context) { removeIcon(); return; }
+  setTimeout(() => {
+    const context = extractContext();
+    if (!context) { removeIcon(); return; }
 
-      const selection = win.getSelection();
-      if (selection.rangeCount === 0) return;
-      const selRect = selection.getRangeAt(0).getBoundingClientRect();
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
 
-      // Offset selection rect by iframe's position in the outer document
-      let rect = selRect;
-      if (iframeEl) {
-        const iframeRect = iframeEl.getBoundingClientRect();
-        rect = {
-          left: selRect.left + iframeRect.left,
-          top: selRect.top + iframeRect.top,
-          width: selRect.width,
-          right: selRect.right + iframeRect.left,
-          bottom: selRect.bottom + iframeRect.top,
-        };
-      }
-
-      pendingContext = context;
-      pendingRect = rect;
-      createIcon(rect);
-    }, 10);
-  };
+    pendingContext = context;
+    pendingRect = rect;
+    createIcon(rect);
+  }, 10);
 }
 
-function makeMouseDownHandler() {
-  return function onMouseDown(e) {
-    if (floatingIcon?.contains(e.target) || tooltip?.contains(e.target)) return;
-    removeIcon();
-    removeTooltip();
-  };
+function onMouseDown(e) {
+  if (floatingIcon?.contains(e.target) || tooltip?.contains(e.target)) return;
+  removeIcon();
+  removeTooltip();
 }
 
-// ── Attach to outer document ──────────────────────────────────────
-document.addEventListener('mouseup', makeMouseUpHandler(null));
-document.addEventListener('mousedown', makeMouseDownHandler());
+document.addEventListener('mouseup', onMouseUp);
+document.addEventListener('mousedown', onMouseDown);
 
-// ── Attach to book content iframes ───────────────────────────────
-function attachToIframe(iframe) {
-  if (iframe._readflowAttached) return;
-  try {
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-
-    // iframe exists but content not loaded yet — wait for load event
-    if (!doc || !doc.body || doc.readyState === 'loading') {
-      iframe.addEventListener('load', () => attachToIframe(iframe), { once: true });
-      return;
-    }
-
-    iframe._readflowAttached = true;
-    console.log('[ReadFlow] attached to iframe:', iframe.src || '(about:blank)', '— readyState:', doc.readyState);
-    doc.addEventListener('mouseup', makeMouseUpHandler(iframe));
-    doc.addEventListener('mousedown', makeMouseDownHandler());
-  } catch (e) {
-    console.log('[ReadFlow] iframe access blocked:', e.message);
-  }
-}
-
-function attachToAllIframes() {
-  document.querySelectorAll('iframe').forEach(attachToIframe);
-}
-
-// Try immediately, after short delays (Play Books renders iframes late), and via MutationObserver
-attachToAllIframes();
-setTimeout(attachToAllIframes, 1000);
-setTimeout(attachToAllIframes, 3000);
-
+// ── MutationObserver: handle page turns ───────────────────────────
 const observer = new MutationObserver(() => {
   removeIcon();
   removeTooltip();
-  attachToAllIframes();
 });
 
-observer.observe(document.body, { childList: true, subtree: true });
+observer.observe(document.body, { childList: true, subtree: false });

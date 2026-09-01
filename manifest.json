@@ -6,6 +6,7 @@
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://play.google.com/*",
+    "https://books.googleusercontent.com/*",
     "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
@@ -13,7 +14,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://play.google.com/books/reader*"],
+      "matches": [
+        "https://play.google.com/*",
+        "https://books.googleusercontent.com/*"
+      ],
       "js": ["content.js"],
       "css": ["styles.css"],
       "all_frames": true
