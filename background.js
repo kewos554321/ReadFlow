@@ -23,7 +23,7 @@ const SYSTEM_PROMPT = `# Role
 **🏛️ 背景知識補充 (Schema Context)** *(可選)*
 * 一句話補充涉及的文化、歷史或專業背景知識。`;
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3.6-flash';
 
 function buildRequestBody(selectedText, surroundingParagraph) {
   return {

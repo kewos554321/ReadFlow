@@ -144,7 +144,15 @@ document.addEventListener('mouseup', onMouseUp);
 document.addEventListener('mousedown', onMouseDown);
 
 // ── MutationObserver: handle page turns ───────────────────────────
-const observer = new MutationObserver(() => {
+function isOwnNode(node) {
+  return node === floatingIcon || node === tooltip;
+}
+
+const observer = new MutationObserver((mutations) => {
+  const isForeignChange = mutations.some((m) =>
+    [...m.addedNodes, ...m.removedNodes].some((n) => !isOwnNode(n))
+  );
+  if (!isForeignChange) return;
   removeIcon();
   removeTooltip();
 });
