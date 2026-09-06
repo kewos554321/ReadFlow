@@ -66,3 +66,49 @@
 }
 
 .readflow-input-panel button:hover { background: #1558b0; }
+
+.readflow-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  z-index: 2147483647;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  padding: 20px 16px;
+  overflow-y: auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.readflow-panel-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #cdd6f4;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.readflow-panel strong { color: #89b4fa; }
+
+.readflow-panel code {
+  background: #313244;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 13px;
+  color: #f9e2af;
+}
+
+.readflow-panel ul { margin: 4px 0; padding-left: 16px; }
+.readflow-panel li { margin: 2px 0; }
+.readflow-panel em { color: #a6e3a1; font-style: italic; }
+.readflow-note { color: #f9e2af; font-size: 12px; margin-bottom: 8px; }
+.readflow-loading { color: #89b4fa; font-style: italic; }
+.readflow-error { color: #f38ba8; }
