@@ -50,3 +50,82 @@ function onStartCapture() {
   closeInputPanel();
   console.log('[ReadFlow] Chapter Guide requested, pageCount =', pageCount);
 }
+
+// ── Shared: cross-frame messaging for Chapter Guide ─────────────────
+// Runs in every frame. Only the frame that actually contains the
+// reader's page-turn controls acts on 'startChapterCapture'; every
+// other frame's handleStartChapterCapture no-ops (see the
+// .forward-gutter existence check below). window.top always resolves
+// to the same real top-level document regardless of nesting depth, so
+// posting to it from any frame reaches the top frame's listener.
+window.addEventListener('message', (event) => {
+  const data = event.data;
+  if (data?.source !== 'readflow') return;
+  if (data.type === 'startChapterCapture') handleStartChapterCapture(data.pageCount);
+  if (data.type === 'chapterCaptureProgress') updateLoadingProgress(data.current, data.total);
+  if (data.type === 'chapterCaptureResult') onCaptureFinished(data.pages, data.reachedEnd);
+});
+
+function handleStartChapterCapture(pageCount) {
+  if (!document.querySelector('.forward-gutter')) return; // not the reader-content frame
+  runChapterCapture(pageCount);
+}
+
+async function runChapterCapture(pageCount) {
+  const collected = [];
+  let advances = 0;
+  let reachedEnd = false;
+
+  for (let i = 0; i < pageCount; i++) {
+    collected.push(extractPageText());
+    notifyProgress(i + 1, pageCount);
+
+    if (i === pageCount - 1) break;
+
+    if (!clickForward()) { reachedEnd = true; break; }
+    advances++;
+    await wait(500);
+  }
+
+  for (let i = 0; i < advances; i++) {
+    clickBackward();
+    await wait(200);
+  }
+
+  window.top.postMessage({
+    source: 'readflow',
+    type: 'chapterCaptureResult',
+    pages: collected,
+    reachedEnd,
+  }, '*');
+}
+
+function extractPageText() {
+  const page = document.querySelector('.reader-rendered-page');
+  return page ? page.innerText.trim() : '';
+}
+
+function clickForward() {
+  const gutter = document.querySelector('.forward-gutter');
+  if (!gutter) return false;
+  gutter.click();
+  return true;
+}
+
+function clickBackward() {
+  const gutter = document.querySelector('.backward-gutter');
+  if (gutter) gutter.click();
+}
+
+function notifyProgress(current, total) {
+  window.top.postMessage({
+    source: 'readflow',
+    type: 'chapterCaptureProgress',
+    current,
+    total,
+  }, '*');
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
