@@ -142,6 +142,14 @@ window.addEventListener('message', (event) => {
   if (data.type === 'startChapterCapture') handleStartChapterCapture(data.pageCount);
   if (data.type === 'chapterCaptureProgress') updateLoadingProgress(data.current, data.total);
   if (data.type === 'chapterCaptureResult') onCaptureFinished(data.pages, data.reachedEnd);
+  if (data.type === 'extractPageTextRequest') {
+    event.source.postMessage({
+      source: 'readflow',
+      type: 'extractPageTextResponse',
+      requestId: data.requestId,
+      text: extractLocalText(),
+    }, '*');
+  }
 });
 
 function handleStartChapterCapture(pageCount) {
@@ -155,7 +163,7 @@ async function runChapterCapture(pageCount) {
   let reachedEnd = false;
 
   for (let i = 0; i < pageCount; i++) {
-    collected.push(extractPageText());
+    collected.push(await extractPageText());
     notifyProgress(i + 1, pageCount);
 
     if (i === pageCount - 1) break;
@@ -178,9 +186,55 @@ async function runChapterCapture(pageCount) {
   }, '*');
 }
 
-function extractPageText() {
+// The frame with the page-turn controls is a shell around a further
+// nested frame that actually holds the readable page text; that nested
+// frame is cross-origin from here, so its contentDocument can't be read
+// directly (confirmed live: iframe.contentDocument throws/returns null).
+// Ask it for its text over postMessage instead — it runs this same
+// content.js (all_frames + match_origin_as_fallback), so it can answer.
+function extractLocalText() {
   const page = document.querySelector('.reader-rendered-page');
-  return page ? page.innerText.trim() : '';
+  if (page && page.innerText.trim()) return page.innerText.trim();
+  return document.body.innerText.trim();
+}
+
+function extractPageText() {
+  const localText = extractLocalText();
+  if (localText) return Promise.resolve(localText);
+
+  const iframes = Array.from(document.querySelectorAll('iframe'));
+  if (iframes.length === 0) return Promise.resolve('');
+
+  return new Promise((resolve) => {
+    const requestId = Math.random().toString(36).slice(2);
+    let settled = false;
+
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onResponse);
+      resolve('');
+    }, 1000);
+
+    function onResponse(event) {
+      const data = event.data;
+      if (data?.source !== 'readflow' || data.type !== 'extractPageTextResponse') return;
+      if (data.requestId !== requestId || settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      window.removeEventListener('message', onResponse);
+      resolve(data.text || '');
+    }
+    window.addEventListener('message', onResponse);
+
+    iframes.forEach((frame) => {
+      try {
+        frame.contentWindow.postMessage({ source: 'readflow', type: 'extractPageTextRequest', requestId }, '*');
+      } catch (e) {
+        // cross-origin frame access blocked; nothing more to do
+      }
+    });
+  });
 }
 
 function clickForward() {
