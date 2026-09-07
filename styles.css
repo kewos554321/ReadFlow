@@ -33,9 +33,13 @@
    top of the panel's own content (the panel is 360px wide). Overlaps
    by 2px rather than sitting exactly flush — two adjacent boxes that
    only touch can show a 1px subpixel gap depending on zoom/DPI; a
-   small deliberate overlap guarantees a seamless join instead. */
+   small deliberate overlap guarantees a seamless join instead. The
+   shadow is dropped here too — a shadow reads as "floating above/
+   separate from" whatever's behind it, which fights the attached,
+   flush look this state is going for. */
 .readflow-drawer-tab.open {
   right: 358px;
+  box-shadow: none;
 }
 
 .readflow-drawer-tab:hover { background: #1558b0; }
