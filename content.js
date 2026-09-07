@@ -67,12 +67,26 @@ function renderDrawerInput() {
   drawerBody.querySelector('#readflow-start-capture').addEventListener('click', onStartCapture);
 }
 
+// If the reader-content frame never responds (wrong page, or its DOM
+// doesn't match what we look for), nothing would otherwise ever move
+// the drawer past "0/N" — this timeout turns silence into a visible
+// error instead of an infinite spinner. Cleared as soon as any real
+// progress or result arrives.
+const CAPTURE_TIMEOUT_MS = 6000;
+let captureTimeoutId = null;
+
 function onStartCapture() {
   const input = document.getElementById('readflow-page-count');
   const pageCount = Math.max(1, Math.min(100, parseInt(input.value, 10) || 10));
   renderDrawerLoading(0, pageCount);
   setDrawerOpen(true);
   broadcastToDescendantFrames(window, { source: 'readflow', type: 'startChapterCapture', pageCount });
+
+  clearTimeout(captureTimeoutId);
+  captureTimeoutId = setTimeout(() => {
+    renderDrawerResult('<span class="readflow-error">無法自動翻頁，請確認目前在書本閱讀頁面內，然後重新分析。</span>');
+    setDrawerOpen(true);
+  }, CAPTURE_TIMEOUT_MS);
 }
 
 function renderDrawerLoading(current, total) {
@@ -119,11 +133,13 @@ document.addEventListener('click', (e) => {
 });
 
 function updateLoadingProgress(current, total) {
+  clearTimeout(captureTimeoutId);
   if (!drawerBody) return;
   renderDrawerLoading(current, total);
 }
 
 function onCaptureFinished(pages, reachedEnd) {
+  clearTimeout(captureTimeoutId);
   chrome.storage.local.get(['apiKey'], ({ apiKey }) => {
     if (!apiKey) {
       renderDrawerResult('<span class="readflow-error">No API key. Click the ReadFlow icon in the toolbar to add one.</span>');
@@ -177,9 +193,19 @@ window.addEventListener('message', (event) => {
   }
 });
 
+// Guards against a second startChapterCapture arriving while a capture
+// is already running in this frame (e.g. the user reopens the drawer
+// mid-capture and hits "開始分析" again) — two concurrent loops would
+// interleave forward/backward clicks and leave the book on the wrong
+// page. The frame just ignores the second request; only one capture
+// per frame runs at a time.
+let capturing = false;
+
 function handleStartChapterCapture(pageCount) {
   if (!document.querySelector('.forward-gutter')) return; // not the reader-content frame
-  runChapterCapture(pageCount);
+  if (capturing) return;
+  capturing = true;
+  runChapterCapture(pageCount).finally(() => { capturing = false; });
 }
 
 async function runChapterCapture(pageCount) {
