@@ -99,6 +99,23 @@ function closeResultPanel() {
   if (resultPanel) { resultPanel.remove(); resultPanel = null; }
 }
 
+// Vocab entries render as "**word**：explanation" (see CHAPTER_SYSTEM_PROMPT),
+// which renderMarkdown turns into "<strong>word</strong>：...". Grammar
+// entries use `code` spans instead, so this only ever matches vocab.
+function addHighlightButtons(html) {
+  return html.replace(/<strong>([^<]+)<\/strong>：/g, (match, word) => {
+    const safeWord = word.replace(/"/g, '&quot;');
+    return `<strong>${word}</strong>： <button class="readflow-highlight-btn" data-word="${safeWord}">畫記</button>`;
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.readflow-highlight-btn');
+  if (!btn) return;
+  btn.classList.toggle('active');
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word: btn.dataset.word });
+});
+
 function updateLoadingProgress(current, total) {
   if (!resultPanel) return;
   resultPanel.querySelector('.readflow-panel-body').innerHTML =
@@ -123,7 +140,7 @@ function onCaptureFinished(pages, reachedEnd) {
         const note = reachedEnd
           ? '<p class="readflow-note">已到達本書結尾，以下為已收集的內容</p>'
           : '';
-        showResultPanel(note + renderMarkdown(response.result));
+        showResultPanel(note + addHighlightButtons(renderMarkdown(response.result)));
       }
     );
   });
@@ -142,6 +159,7 @@ window.addEventListener('message', (event) => {
   if (data.type === 'startChapterCapture') handleStartChapterCapture(data.pageCount);
   if (data.type === 'chapterCaptureProgress') updateLoadingProgress(data.current, data.total);
   if (data.type === 'chapterCaptureResult') onCaptureFinished(data.pages, data.reachedEnd);
+  if (data.type === 'toggleHighlightRequest') applyHighlightToggle(data.word);
   if (data.type === 'extractPageTextRequest') {
     event.source.postMessage({
       source: 'readflow',
@@ -184,6 +202,52 @@ async function runChapterCapture(pageCount) {
     pages: collected,
     reachedEnd,
   }, '*');
+}
+
+// Marks (or unmarks) every visible occurrence of `word` in this frame's
+// body with a <mark>. Runs in every frame reached by
+// broadcastToDescendantFrames; only the frame that actually has the
+// word in its text will find anything to do.
+const highlightedWords = new Set();
+
+function applyHighlightToggle(word) {
+  const key = word.toLowerCase();
+  if (highlightedWords.has(key)) {
+    document.querySelectorAll('mark.readflow-highlight[data-word="' + CSS.escape(key) + '"]').forEach((mark) => {
+      mark.replaceWith(document.createTextNode(mark.textContent));
+    });
+    highlightedWords.delete(key);
+    return;
+  }
+
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp('\\b(' + escaped + ')\\b', 'gi');
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const matches = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    if (regex.test(node.textContent)) matches.push(node);
+    regex.lastIndex = 0;
+  }
+  if (matches.length === 0) return; // not the right frame
+
+  matches.forEach((textNode) => {
+    const parts = textNode.textContent.split(regex);
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        const mark = document.createElement('mark');
+        mark.className = 'readflow-highlight';
+        mark.dataset.word = key;
+        mark.textContent = parts[i];
+        frag.appendChild(mark);
+      } else if (parts[i]) {
+        frag.appendChild(document.createTextNode(parts[i]));
+      }
+    }
+    textNode.replaceWith(frag);
+  });
+  highlightedWords.add(key);
 }
 
 // The frame with the page-turn controls is a shell around a further

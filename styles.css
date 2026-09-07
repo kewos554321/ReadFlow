@@ -112,3 +112,26 @@
 .readflow-note { color: #f9e2af; font-size: 12px; margin-bottom: 8px; }
 .readflow-loading { color: #89b4fa; font-style: italic; }
 .readflow-error { color: #f38ba8; }
+
+.readflow-highlight-btn {
+  background: #313244;
+  color: #f9e2af;
+  border: 1px solid #f9e2af;
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.readflow-highlight-btn:hover { background: #45475a; }
+
+.readflow-highlight-btn.active {
+  background: #f9e2af;
+  color: #1e1e2e;
+}
+
+mark.readflow-highlight {
+  background: #ffe066;
+  color: inherit;
+}
