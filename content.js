@@ -30,11 +30,23 @@ function initChapterGuideIcon() {
   icon.className = 'readflow-page-icon';
   icon.textContent = '📖';
   icon.title = 'ReadFlow: Chapter Guide';
-  icon.addEventListener('click', toggleInputPanel);
+  icon.addEventListener('click', onIconClick);
   document.body.appendChild(icon);
 }
 
 let inputPanel = null;
+
+// The icon has three things it might need to do, in priority order:
+// re-show a result the user closed (so closing it isn't a dead end),
+// close whatever's currently open, or start a fresh analysis.
+function onIconClick() {
+  if (resultPanel && resultPanel.style.display === 'none') {
+    resultPanel.style.display = '';
+    return;
+  }
+  if (resultPanel) { closeResultPanel(); return; }
+  toggleInputPanel();
+}
 
 function toggleInputPanel() {
   if (inputPanel) { closeInputPanel(); return; }
@@ -86,26 +98,34 @@ function showResultPanel(html) {
     resultPanel = document.createElement('div');
     resultPanel.className = 'readflow-panel';
     resultPanel.innerHTML = `
+      <button class="readflow-panel-restart" title="重新分析">🔄</button>
       <button class="readflow-panel-close">×</button>
       <div class="readflow-panel-body"></div>
     `;
     resultPanel.querySelector('.readflow-panel-close').addEventListener('click', closeResultPanel);
+    resultPanel.querySelector('.readflow-panel-restart').addEventListener('click', () => {
+      closeResultPanel();
+      toggleInputPanel();
+    });
     document.body.appendChild(resultPanel);
   }
+  resultPanel.style.display = '';
   resultPanel.querySelector('.readflow-panel-body').innerHTML = html;
 }
 
+// Hides rather than destroys the panel, so closing it (or the icon) can
+// bring the last result straight back without re-running the analysis.
 function closeResultPanel() {
-  if (resultPanel) { resultPanel.remove(); resultPanel = null; }
+  if (resultPanel) resultPanel.style.display = 'none';
 }
 
 // Vocab entries render as "**word**：explanation" (see CHAPTER_SYSTEM_PROMPT),
 // which renderMarkdown turns into "<strong>word</strong>：...". Grammar
 // entries use `code` spans instead, so this only ever matches vocab.
 function addHighlightButtons(html) {
-  return html.replace(/<strong>([^<]+)<\/strong>：/g, (match, word) => {
+  return html.replace(/<strong>([^<]+)<\/strong>([^：<]*)：/g, (match, word, betweenText) => {
     const safeWord = word.replace(/"/g, '&quot;');
-    return `<strong>${word}</strong>： <button class="readflow-highlight-btn" data-word="${safeWord}">畫記</button>`;
+    return `<strong>${word}</strong>${betweenText}： <button class="readflow-highlight-btn" data-word="${safeWord}">畫記</button>`;
   });
 }
 

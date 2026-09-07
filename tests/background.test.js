@@ -11,7 +11,7 @@ test('buildChapterRequestBody puts joined page text in the user content', () => 
     parts: [{ text: 'Once upon a time.\n\n---\n\nThe end.' }]
   }]);
   expect(body.system_instruction.parts[0].text).toContain('導讀');
-  expect(body.generationConfig.maxOutputTokens).toBe(1500);
+  expect(body.generationConfig.maxOutputTokens).toBe(2200);
 });
 
 test('buildChapterRequestBody truncates very long page text', () => {
