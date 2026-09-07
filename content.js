@@ -23,12 +23,11 @@ function renderMarkdown(text) {
 // depends on iframe-relative positioning.
 let drawerBody = null;
 let drawerOpen = false;
+let drawerTab = null;
 
 if (window === window.top) {
   initDrawer();
 }
-
-let drawerTab = null;
 
 function initDrawer() {
   if (document.getElementById('readflow-drawer-tab')) return;
