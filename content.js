@@ -14,68 +14,79 @@ function renderMarkdown(text) {
   return html;
 }
 
-// ── Top frame: persistent Chapter Guide icon ────────────────────────
-// Injected only into the top-level document (never into any iframe),
-// guarded by an existence check — so it can't be duplicated by
-// iframe re-injection and never depends on iframe-relative positioning.
+// ── Top frame: persistent Chapter Guide drawer ──────────────────────
+// One collapsible drawer — an always-visible edge tab plus a sliding
+// body — replaces what used to be a floating icon, a separate small
+// input popup, and a separate result sidebar. Injected only into the
+// top-level document (never into any iframe), guarded by an existence
+// check so it can't be duplicated by iframe re-injection, and never
+// depends on iframe-relative positioning.
+let drawerBody = null;
+let drawerOpen = false;
+
 if (window === window.top) {
-  initChapterGuideIcon();
+  initDrawer();
 }
 
-function initChapterGuideIcon() {
-  if (document.getElementById('readflow-page-icon')) return;
+let drawerTab = null;
 
-  const icon = document.createElement('div');
-  icon.id = 'readflow-page-icon';
-  icon.className = 'readflow-page-icon';
-  icon.textContent = '📖';
-  icon.title = 'ReadFlow: Chapter Guide';
-  icon.addEventListener('click', onIconClick);
-  document.body.appendChild(icon);
+function initDrawer() {
+  if (document.getElementById('readflow-drawer-tab')) return;
+
+  const tab = document.createElement('div');
+  drawerTab = tab;
+  tab.id = 'readflow-drawer-tab';
+  tab.className = 'readflow-drawer-tab';
+  tab.textContent = '📖 導讀';
+  tab.title = 'ReadFlow: Chapter Guide';
+  tab.addEventListener('click', () => setDrawerOpen(!drawerOpen));
+  document.body.appendChild(tab);
+
+  drawerBody = document.createElement('div');
+  drawerBody.className = 'readflow-panel';
+  document.body.appendChild(drawerBody);
+
+  renderDrawerInput();
 }
 
-let inputPanel = null;
-
-// The icon has three things it might need to do, in priority order:
-// re-show a result the user closed (so closing it isn't a dead end),
-// close whatever's currently open, or start a fresh analysis.
-function onIconClick() {
-  if (resultPanel && resultPanel.style.display === 'none') {
-    resultPanel.style.display = '';
-    return;
-  }
-  if (resultPanel) { closeResultPanel(); return; }
-  toggleInputPanel();
+// The tab stays put at the page edge when closed, but shifts to sit at
+// the open panel's left edge (like a handle attached to it) instead of
+// floating on top of the panel's own content.
+function setDrawerOpen(open) {
+  drawerOpen = open;
+  drawerBody.classList.toggle('open', open);
+  drawerTab.classList.toggle('open', open);
 }
 
-function toggleInputPanel() {
-  if (inputPanel) { closeInputPanel(); return; }
-  openInputPanel();
-}
-
-function openInputPanel() {
-  inputPanel = document.createElement('div');
-  inputPanel.className = 'readflow-input-panel';
-  inputPanel.innerHTML = `
+function renderDrawerInput() {
+  drawerBody.innerHTML = `
     <label>往後幾頁
       <input type="number" id="readflow-page-count" value="10" min="1" max="100">
     </label>
     <button id="readflow-start-capture">開始分析</button>
   `;
-  document.body.appendChild(inputPanel);
-  inputPanel.querySelector('#readflow-start-capture').addEventListener('click', onStartCapture);
-}
-
-function closeInputPanel() {
-  if (inputPanel) { inputPanel.remove(); inputPanel = null; }
+  drawerBody.querySelector('#readflow-start-capture').addEventListener('click', onStartCapture);
 }
 
 function onStartCapture() {
   const input = document.getElementById('readflow-page-count');
-  const pageCount = Math.max(1, parseInt(input.value, 10) || 10);
-  closeInputPanel();
-  showResultPanel(`<span class="readflow-loading">正在翻頁擷取內容 (0/${pageCount})</span>`);
+  const pageCount = Math.max(1, Math.min(100, parseInt(input.value, 10) || 10));
+  renderDrawerLoading(0, pageCount);
+  setDrawerOpen(true);
   broadcastToDescendantFrames(window, { source: 'readflow', type: 'startChapterCapture', pageCount });
+}
+
+function renderDrawerLoading(current, total) {
+  drawerBody.innerHTML = `<span class="readflow-loading">正在翻頁擷取內容 (${current}/${total})</span>`;
+}
+
+function renderDrawerResult(html) {
+  drawerBody.innerHTML = `
+    <button class="readflow-panel-restart" title="重新分析">🔄</button>
+    <div class="readflow-panel-body"></div>
+  `;
+  drawerBody.querySelector('.readflow-panel-restart').addEventListener('click', renderDrawerInput);
+  drawerBody.querySelector('.readflow-panel-body').innerHTML = html;
 }
 
 function broadcastToDescendantFrames(win, message, depth = 0) {
@@ -89,34 +100,6 @@ function broadcastToDescendantFrames(win, message, depth = 0) {
   } catch (e) {
     // cross-origin frame access blocked at this depth; nothing more to do
   }
-}
-
-let resultPanel = null;
-
-function showResultPanel(html) {
-  if (!resultPanel) {
-    resultPanel = document.createElement('div');
-    resultPanel.className = 'readflow-panel';
-    resultPanel.innerHTML = `
-      <button class="readflow-panel-restart" title="重新分析">🔄</button>
-      <button class="readflow-panel-close">×</button>
-      <div class="readflow-panel-body"></div>
-    `;
-    resultPanel.querySelector('.readflow-panel-close').addEventListener('click', closeResultPanel);
-    resultPanel.querySelector('.readflow-panel-restart').addEventListener('click', () => {
-      closeResultPanel();
-      toggleInputPanel();
-    });
-    document.body.appendChild(resultPanel);
-  }
-  resultPanel.style.display = '';
-  resultPanel.querySelector('.readflow-panel-body').innerHTML = html;
-}
-
-// Hides rather than destroys the panel, so closing it (or the icon) can
-// bring the last result straight back without re-running the analysis.
-function closeResultPanel() {
-  if (resultPanel) resultPanel.style.display = 'none';
 }
 
 // Vocab entries render as "**word**：explanation" (see CHAPTER_SYSTEM_PROMPT),
@@ -137,15 +120,15 @@ document.addEventListener('click', (e) => {
 });
 
 function updateLoadingProgress(current, total) {
-  if (!resultPanel) return;
-  resultPanel.querySelector('.readflow-panel-body').innerHTML =
-    `<span class="readflow-loading">正在翻頁擷取內容 (${current}/${total})</span>`;
+  if (!drawerBody) return;
+  renderDrawerLoading(current, total);
 }
 
 function onCaptureFinished(pages, reachedEnd) {
   chrome.storage.local.get(['apiKey'], ({ apiKey }) => {
     if (!apiKey) {
-      showResultPanel('<span class="readflow-error">No API key. Click the ReadFlow icon in the toolbar to add one.</span>');
+      renderDrawerResult('<span class="readflow-error">No API key. Click the ReadFlow icon in the toolbar to add one.</span>');
+      setDrawerOpen(true);
       return;
     }
 
@@ -154,13 +137,18 @@ function onCaptureFinished(pages, reachedEnd) {
       (response) => {
         if (chrome.runtime.lastError || response?.error) {
           const msg = response?.error || chrome.runtime.lastError?.message;
-          showResultPanel(`<span class="readflow-error">Error: ${msg}</span>`);
+          renderDrawerResult(`<span class="readflow-error">Error: ${msg}</span>`);
+          setDrawerOpen(true);
           return;
         }
         const note = reachedEnd
           ? '<p class="readflow-note">已到達本書結尾，以下為已收集的內容</p>'
           : '';
-        showResultPanel(note + addHighlightButtons(renderMarkdown(response.result)));
+        const usage = response.usage
+          ? `<p class="readflow-usage">Token 用量：輸入 ${response.usage.promptTokenCount} ／ 輸出 ${response.usage.candidatesTokenCount} ／ 總計 ${response.usage.totalTokenCount}</p>`
+          : '';
+        renderDrawerResult(note + addHighlightButtons(renderMarkdown(response.result)) + usage);
+        setDrawerOpen(true);
       }
     );
   });

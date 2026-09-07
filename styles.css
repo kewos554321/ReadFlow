@@ -1,61 +1,72 @@
 /* ReadFlow styles */
 
-.readflow-page-icon {
+/* Always-visible edge handle: doubles as the open/close toggle, so
+   there's exactly one control for "bring the drawer back" instead of
+   a separate floating icon plus a separate small popup. */
+.readflow-drawer-tab {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
   z-index: 2147483647;
   background: #1a73e8;
   color: white;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 14px 6px;
+  border-radius: 8px 0 0 8px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  letter-spacing: 1px;
+  box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.3);
   user-select: none;
-  transition: transform 0.1s, background 0.1s;
+  transition: right 0.25s ease, background 0.1s;
 }
 
-.readflow-page-icon:hover {
-  background: #1558b0;
-  transform: scale(1.1);
+/* When the panel is open, sit at its left edge instead of floating on
+   top of the panel's own content (the panel is 360px wide). */
+.readflow-drawer-tab.open {
+  right: 360px;
 }
 
-.readflow-input-panel {
+.readflow-drawer-tab:hover { background: #1558b0; }
+
+.readflow-panel {
   position: fixed;
-  right: 16px;
-  bottom: 64px;
-  z-index: 2147483647;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  z-index: 2147483646;
   background: #1e1e2e;
   color: #cdd6f4;
-  border-radius: 10px;
-  padding: 12px 16px;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  padding: 20px 16px;
+  overflow-y: auto;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  font-size: 14px;
+  line-height: 1.7;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
 }
 
-.readflow-input-panel label {
+.readflow-panel.open { transform: translateX(0); }
+
+.readflow-panel label {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.readflow-input-panel input {
+.readflow-panel input[type="number"] {
   width: 56px;
   padding: 4px 6px;
   border-radius: 4px;
   border: none;
 }
 
-.readflow-input-panel button {
+#readflow-start-capture {
+  margin-top: 10px;
   background: #1a73e8;
   color: white;
   border: none;
@@ -65,33 +76,16 @@
   font-size: 13px;
 }
 
-.readflow-input-panel button:hover { background: #1558b0; }
+#readflow-start-capture:hover { background: #1558b0; }
 
-.readflow-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 360px;
-  z-index: 2147483647;
-  background: #1e1e2e;
-  color: #cdd6f4;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
-  padding: 20px 16px;
-  overflow-y: auto;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.readflow-panel-close {
+.readflow-panel-restart {
   position: absolute;
   top: 8px;
   right: 12px;
   background: none;
   border: none;
   color: #cdd6f4;
-  font-size: 20px;
+  font-size: 15px;
   cursor: pointer;
 }
 
@@ -112,6 +106,7 @@
 .readflow-note { color: #f9e2af; font-size: 12px; margin-bottom: 8px; }
 .readflow-loading { color: #89b4fa; font-style: italic; }
 .readflow-error { color: #f38ba8; }
+.readflow-usage { color: #6c7086; font-size: 11px; margin-top: 12px; }
 
 .readflow-highlight-btn {
   background: #313244;

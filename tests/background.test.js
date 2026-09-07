@@ -20,11 +20,12 @@ test('buildChapterRequestBody truncates very long page text', () => {
   expect(body.contents[0].parts[0].text.length).toBe(20000);
 });
 
-test('callGeminiForChapter calls Gemini endpoint and returns text', async () => {
+test('callGeminiForChapter calls Gemini endpoint and returns text with usage', async () => {
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
-      candidates: [{ content: { parts: [{ text: '**章節大綱**' }] } }]
+      candidates: [{ content: { parts: [{ text: '**章節大綱**' }] } }],
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 }
     })
   });
 
@@ -34,7 +35,8 @@ test('callGeminiForChapter calls Gemini endpoint and returns text', async () => 
     expect.stringContaining('AIza-test'),
     expect.objectContaining({ method: 'POST' })
   );
-  expect(result).toBe('**章節大綱**');
+  expect(result.text).toBe('**章節大綱**');
+  expect(result.usage).toEqual({ promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 });
 });
 
 test('callGeminiForChapter throws on API error', async () => {

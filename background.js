@@ -63,7 +63,10 @@ async function callGeminiForChapter(apiKey, pages) {
   if (!response.ok) {
     throw new Error(data.error?.message || 'API request failed');
   }
-  return data.candidates[0].content.parts[0].text;
+  return {
+    text: data.candidates[0].content.parts[0].text,
+    usage: data.usageMetadata || null,
+  };
 }
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {
@@ -71,7 +74,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
     if (message.type !== 'analyzeChapter') return false;
     const { pages, apiKey } = message;
     callGeminiForChapter(apiKey, pages)
-      .then((result) => sendResponse({ result }))
+      .then(({ text, usage }) => sendResponse({ result: text, usage }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
   });
