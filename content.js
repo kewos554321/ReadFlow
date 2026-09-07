@@ -21,11 +21,18 @@ function renderMarkdown(text) {
 // top-level document (never into any iframe), guarded by an existence
 // check so it can't be duplicated by iframe re-injection, and never
 // depends on iframe-relative positioning.
+//
+// The manifest's content_scripts match is `play.google.com/*` (not
+// narrowed to `/books*`) because `match_origin_as_fallback` requires
+// every match pattern in the block to have a `*` path — Chrome refuses
+// to load the manifest otherwise. So the script does load on every
+// play.google.com page; the path check below is what keeps the drawer
+// itself from appearing outside the book reader.
 let drawerBody = null;
 let drawerOpen = false;
 let drawerTab = null;
 
-if (window === window.top) {
+if (window === window.top && window.location.pathname.startsWith('/books')) {
   initDrawer();
 }
 

@@ -15,7 +15,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://play.google.com/books*",
+        "https://play.google.com/*",
         "https://books.googleusercontent.com/*"
       ],
       "js": ["content.js"],
