@@ -33,6 +33,21 @@
     }
     button:hover { background: #1558b0; }
     #status { margin-top: 6px; color: #34a853; font-size: 12px; }
+    .debug-section {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+    }
+    .debug-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+      color: #555;
+    }
+    .debug-row input[type="checkbox"] { width: auto; }
+    .debug-row label { margin: 0; color: inherit; }
+    .debug-hint { color: #999; font-size: 11px; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -41,6 +56,19 @@
   <input type="password" id="apiKey" placeholder="AIza..." />
   <button id="save">Save</button>
   <div id="status"></div>
+
+  <div class="debug-section">
+    <div class="debug-row">
+      <input type="checkbox" id="debugMode">
+      <label for="debugMode">Debug 模式（不呼叫 Gemini）</label>
+    </div>
+    <div class="debug-row">
+      <input type="checkbox" id="debugModeError">
+      <label for="debugModeError">Debug 模式模擬錯誤</label>
+    </div>
+    <p class="debug-hint">開啟後重新整理 Play Books 分頁即可生效；抽屜書籤會顯示「(Debug)」。</p>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
