@@ -8,7 +8,14 @@
   top: 50%;
   right: 0;
   transform: translateY(-50%);
-  z-index: 2147483647;
+  /* Below the panel (not above it): the tab tucks its overlapping edge
+     UNDER the panel instead of trying to land its own edge pixel-for-
+     pixel on top of the panel's. The panel is opaque, so as long as the
+     overlap (content.js TAB_OVERLAP_PX) is generous, the panel's own
+     edge is the only boundary the user ever sees — no more chasing
+     subpixel/zoom/DPR mismatches between two independently-positioned
+     elements' edges. */
+  z-index: 2147483645;
   background: #1a73e8;
   color: white;
   writing-mode: vertical-rl;
@@ -29,17 +36,23 @@
   box-shadow: -2px 2px 14px rgba(0, 0, 0, 0.45);
 }
 
-/* When the panel is open, sit at its left edge instead of floating on
-   top of the panel's own content (the panel is 360px wide). Overlaps
-   by 2px rather than sitting exactly flush — two adjacent boxes that
-   only touch can show a 1px subpixel gap depending on zoom/DPI; a
-   small deliberate overlap guarantees a seamless join instead. The
-   shadow is dropped here too — a shadow reads as "floating above/
-   separate from" whatever's behind it, which fights the attached,
-   flush look this state is going for. */
+/* When the panel is open, sit at its left edge, tucked under the panel
+   (see the z-index note above). The `right` offset itself is set in JS
+   (content.js applyPanelWidth/setDrawerOpen) since the panel is now
+   user-resizable, so a fixed value here would drift out of sync as soon
+   as someone drags the handle. The shadow is dropped here too — a
+   shadow reads as "floating above/separate from" whatever's behind it,
+   which fights the attached, flush look this state is going for. */
 .readflow-drawer-tab.open {
-  right: 358px;
   box-shadow: none;
+}
+
+/* Suppress the `right` transition while a panel resize drag is in
+   progress (see content.js onResizeHandlePointerDown) — otherwise the
+   tab visibly lags a quarter-second behind the pointer instead of
+   tracking the panel edge 1:1. */
+.readflow-drawer-tab.resizing {
+  transition: none;
 }
 
 .readflow-drawer-tab:hover { background: #1558b0; }
@@ -49,7 +62,11 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 360px;
+  width: 360px; /* default before JS applies the stored/resized width */
+  box-sizing: border-box; /* padding must count toward the width, or the
+    drawer tab's open offset (set in JS, content.js applyPanelWidth)
+    undershoots the panel's real left edge and the tab floats away
+    from it. */
   z-index: 2147483646;
   background: #1e1e2e;
   color: #cdd6f4;
@@ -64,6 +81,31 @@
 }
 
 .readflow-panel.open { transform: translateX(0); }
+
+/* Drag handle for resizing the panel width. Kept as a sibling of the
+   panel (not a child) so it survives the panel's innerHTML swaps
+   between the input/loading/result states; its `right` offset is kept
+   in sync with the panel's width from JS (content.js applyPanelWidth). */
+.readflow-panel-resize-handle {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  touch-action: none; /* let pointer events drive dragging instead of scroll gestures */
+  /* Above the panel so it can still receive the drag — the tab is now
+     tucked BELOW the panel (see .readflow-drawer-tab), so the handle no
+     longer needs to out-rank the tab, only the panel underneath it. */
+  z-index: 2147483647;
+  display: none;
+}
+
+.readflow-panel-resize-handle.open { display: block; }
+
+.readflow-panel-resize-handle:hover,
+.readflow-panel-resize-handle.dragging {
+  background: rgba(137, 180, 250, 0.4);
+}
 
 .readflow-panel label {
   display: flex;
@@ -91,10 +133,28 @@
 
 #readflow-start-capture:hover { background: #1558b0; }
 
-.readflow-panel-restart {
+.readflow-panel-controls {
   position: absolute;
   top: 8px;
   right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.readflow-font-size-btn {
+  background: none;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  color: #cdd6f4;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.readflow-font-size-btn:hover { background: #313244; }
+
+.readflow-panel-restart {
   background: none;
   border: none;
   color: #cdd6f4;
