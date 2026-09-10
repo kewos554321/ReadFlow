@@ -1,0 +1,70 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ReadFlow harness — reader shell frame</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  iframe { border: 0; width: 100%; height: 100%; display: block; }
+  /* These two must carry no text of their own — content.js's
+     extractLocalText() falls back to document.body.innerText when
+     .reader-rendered-page isn't found in this frame, and any visible
+     text here would short-circuit the real cross-frame text request
+     this harness exists to exercise. */
+  .gutter { position: fixed; top: 0; bottom: 0; width: 14%; cursor: pointer; }
+  .backward-gutter { left: 0; }
+  .forward-gutter { right: 0; }
+  .gutter:hover { background: rgba(0, 0, 0, .05); }
+</style>
+<div class="gutter backward-gutter" id="backwardGutter"></div>
+<iframe id="mockContent" src="mock-page.html"></iframe>
+<div class="gutter forward-gutter" id="forwardGutter"></div>
+
+<!-- Loaded unmodified, same as the top frame — this is what makes
+     handleStartChapterCapture() find `.forward-gutter` here and run
+     the real capture loop against the real code. -->
+<script src="../content.js"></script>
+<script>
+(function () {
+  // Everything below is the *mock reader app* standing in for Play
+  // Books' own JS — not part of the extension. It owns page-turning:
+  // clicking .forward-gutter/.backward-gutter here has no built-in
+  // effect on its own; content.js only calls gutter.click(), same as
+  // it would on the real site.
+  var TOTAL = 5;
+  var current = 1;
+  var contentFrame = document.getElementById('mockContent');
+  var forwardEl = document.getElementById('forwardGutter');
+  var forwardParent = forwardEl.parentNode;
+  var forwardNext = forwardEl.nextSibling;
+
+  function sync() {
+    contentFrame.contentWindow.postMessage(
+      { source: 'mockreader', type: 'setPage', page: current, total: TOTAL }, '*'
+    );
+    // Reaching the end removes .forward-gutter entirely (not just
+    // hides it) — that's what makes content.js's clickForward() return
+    // false and the real capture loop set reachedEnd = true, the same
+    // way it would if Play Books ran out of pages.
+    if (current >= TOTAL) {
+      if (forwardEl.isConnected) forwardEl.remove();
+    } else if (!forwardEl.isConnected) {
+      forwardParent.insertBefore(forwardEl, forwardNext);
+    }
+  }
+
+  document.getElementById('backwardGutter').addEventListener('click', function () {
+    if (current > 1) { current--; sync(); }
+  });
+  forwardParent.addEventListener('click', function (e) {
+    if (e.target.id === 'forwardGutter' && current < TOTAL) { current++; sync(); }
+  });
+
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (!data || data.source !== 'harnessControl') return;
+    if (data.type === 'resetPage') { current = 1; sync(); }
+    if (data.type === 'jumpNearEnd') { current = TOTAL - 1; sync(); }
+  });
+
+  contentFrame.addEventListener('load', sync);
+})();
+</script>

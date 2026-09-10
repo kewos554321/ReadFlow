@@ -1,0 +1,159 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ReadFlow harness — Chapter Guide</title>
+<script>
+  // content.js's very first check is `window.location.pathname.startsWith('/books')`.
+  // This file is served from wherever it physically sits, so fake the reported
+  // path before content.js loads. history.replaceState changes more than
+  // location.pathname though — it also becomes the base every later relative
+  // URL (script src, iframe src, ...) resolves against, which would silently
+  // break ../content.js and mock-shell.html. Pin an explicit <base> to the
+  // real folder first so only location.pathname ends up faked.
+  (function () {
+    var base = document.createElement('base');
+    base.href = location.href.replace(/[^/]*$/, '');
+    document.head.appendChild(base);
+    history.replaceState(null, '', '/books/harness.html' + location.search);
+  })();
+</script>
+<style>
+  html, body { margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #EDEBE4;
+  }
+
+  /* ---- harness control panel — obviously not part of the extension ---- */
+  #harnessPanel {
+    position: fixed; top: 12px; left: 12px; z-index: 2147483000;
+    width: 258px;
+    background: #fff; border: 1px solid #D8D2C4; border-radius: 10px;
+    box-shadow: 0 8px 22px rgba(30, 26, 18, .16);
+    font-size: 12.5px; color: #3A342A;
+  }
+  #harnessPanel h2 {
+    margin: 0; padding: 9px 12px; font-size: 12px; font-weight: 700;
+    letter-spacing: .03em; background: #3A342A; color: #F5F0E4;
+    border-radius: 9px 9px 0 0;
+  }
+  #harnessPanel .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; }
+  #harnessPanel label.row { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+  #harnessPanel button {
+    font: inherit; font-size: 12px; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid #D8D2C4; background: #F8F5EE; color: #3A342A; cursor: pointer;
+  }
+  #harnessPanel button:hover { background: #EFE9DA; }
+  #harnessPanel .hint { color: #8A8171; line-height: 1.5; }
+  #harnessPanel .btn-row { display: flex; gap: 6px; }
+  #harnessPanel .btn-row button { flex: 1; }
+
+  .reader-shell {
+    position: fixed; inset: 0;
+  }
+  .reader-shell iframe { border: 0; width: 100%; height: 100%; display: block; }
+</style>
+
+<div id="harnessPanel">
+  <h2>🧪 Chapter Guide 測試面板</h2>
+  <div class="body">
+    <label class="row"><input type="checkbox" id="chkApiKey" checked> 已設定 API Key</label>
+    <label class="row"><input type="checkbox" id="chkForceError"> 模擬 Gemini 連線失敗</label>
+    <div class="btn-row">
+      <button id="btnResetPage">回到第 1 頁</button>
+      <button id="btnJumpEnd">跳到倒數第 2 頁</button>
+    </div>
+    <button id="btnResetPrefs">清除已記住的寬度／字級</button>
+    <p class="hint">
+      這個畫面直接載入專案根目錄的 <code>content.js</code> / <code>styles.css</code>，
+      模擬 Play Books 的巢狀 iframe（分頁按鈕 + 內文），
+      不需要重新載入擴充功能或截圖，就能實際點開、翻頁、拉抽屜、測試各種狀態。
+    </p>
+  </div>
+</div>
+
+<div class="reader-shell">
+  <iframe id="readerFrame" src="mock-shell.html"></iframe>
+</div>
+
+<!-- ---- stub the chrome extension APIs content.js expects ---- -->
+<script>
+  window.__harness = { apiKeyPresent: true, forceError: false };
+
+  // ReadFlow analyzes English books for a Chinese-speaking reader (see
+  // background.js's CHAPTER_SYSTEM_PROMPT): captured pages are English
+  // text, and the analysis explains English vocab/grammar in Chinese —
+  // this canned result follows that same shape.
+  var FAKE_RESULT_TEMPLATE = '**📖 章節大綱 (Outline)**\n' +
+    '主角在雨夜舊書店中，意外發現一本封面斑駁的筆記本，裡頭夾著一封從未寄出的信，字跡因潮濕而暈染，讀來帶著一絲惆悵；隨著她繼續翻閱，某段文字忽然變得工整，像是另一人接手寫下，暗示還有未解的伏筆等著揭曉。\n\n' +
+    '**📚 困難生字 (Difficult Vocabulary)**\n' +
+    '* **mottled**（adj. 形容詞）：表面帶有斑駁色塊、不均勻，原文用來形容筆記本封面因年代久遠產生的痕跡（"its cover worn and mottled with age"），可理解為「舊舊髒髒、顏色不均」。\n' +
+    '* **wistful**（adj. 形容詞）：帶著淡淡感傷與懷念、若有所失的心情，原文 "left her with a lingering, wistful sadness" 描述她讀完信後的感受，語氣比 sad 更含蓄。\n' +
+    '* **deliberate**（adj. 形容詞）：這裡指刻意、工整、經過用心書寫，不是「延遲」的意思；原文 "grew neat and deliberate" 形容字跡忽然變得端正、像是特意寫成的。\n\n' +
+    '**📝 困難文法 (Difficult Grammar)**\n' +
+    '* `as if someone else had taken over the writing`：`as if` 後面接過去完成式（had + p.p.），用來描述「其實未必是事實、只是看起來像」的假設情境，這種語氣在描述懷疑或推測時很常見。\n\n' +
+    '**🧪 測試除錯：實際擷取到的原始內容**\n' +
+    '{{DEBUG_PAGES}}';
+
+  window.chrome = {
+    storage: {
+      local: {
+        get: function (keys, cb) {
+          cb(window.__harness.apiKeyPresent ? { apiKey: 'harness-fake-key' } : {});
+        }
+      }
+    },
+    runtime: {
+      lastError: null,
+      // Real signature also carries a sender arg (chrome.runtime.onMessage
+      // passes msg, sender, sendResponse) — content.js only ever reads the
+      // first and calls-back the third, so this stub keeps just those two.
+      sendMessage: function (msg, cb) {
+        setTimeout(function () {
+          if (window.__harness.forceError) {
+            cb({ error: '(模擬) 無法連線至 Gemini，請稍後再試' });
+            return;
+          }
+          var debugLines = msg.pages.map(function (p, i) {
+            return '* 第 ' + (i + 1) + ' 頁：`' + p.slice(0, 24) + (p.length > 24 ? '…' : '') + '`';
+          }).join('\n');
+          var result = FAKE_RESULT_TEMPLATE.replace('{{DEBUG_PAGES}}', debugLines || '（沒有擷取到任何內容）');
+          cb({
+            result: result,
+            usage: {
+              promptTokenCount: 800 + msg.pages.length * 42,
+              candidatesTokenCount: 356,
+              totalTokenCount: 1156 + msg.pages.length * 42
+            }
+          });
+        }, 650);
+      }
+    }
+  };
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+<script src="../content.js"></script>
+
+<script>
+  document.getElementById('chkApiKey').addEventListener('change', function (e) {
+    window.__harness.apiKeyPresent = e.target.checked;
+  });
+  document.getElementById('chkForceError').addEventListener('change', function (e) {
+    window.__harness.forceError = e.target.checked;
+  });
+  document.getElementById('btnResetPage').addEventListener('click', function () {
+    document.getElementById('readerFrame').contentWindow.postMessage(
+      { source: 'harnessControl', type: 'resetPage' }, '*'
+    );
+  });
+  document.getElementById('btnJumpEnd').addEventListener('click', function () {
+    document.getElementById('readerFrame').contentWindow.postMessage(
+      { source: 'harnessControl', type: 'jumpNearEnd' }, '*'
+    );
+  });
+  document.getElementById('btnResetPrefs').addEventListener('click', function () {
+    localStorage.removeItem('readflow-panel-width');
+    localStorage.removeItem('readflow-body-font-size');
+    location.reload();
+  });
+</script>

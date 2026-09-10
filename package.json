@@ -7,7 +7,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "manual-test": "python3 -m http.server 4173"
   },
   "keywords": [],
   "author": "",

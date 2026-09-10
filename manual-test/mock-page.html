@@ -1,0 +1,68 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ReadFlow harness — page content frame</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Noto Serif TC", "Noto Sans TC", serif;
+    font-size: 16px;
+    line-height: 2;
+    color: #2B2620;
+    background: #FBF7EE;
+    padding: 44px 48px 30px;
+    box-sizing: border-box;
+  }
+  /* Real extension only reads .reader-rendered-page's own innerText
+     (content.js extractLocalText), so this badge is a deliberate
+     sibling, not a child — it must never leak into what gets captured. */
+  .reader-rendered-page { max-width: 60ch; margin: 0 auto; }
+  .page-badge {
+    position: fixed; bottom: 8px; left: 50%; transform: translateX(-50%);
+    font: 11px/1 "IBM Plex Mono", monospace; color: #A79B87;
+    background: #fff; border: 1px solid #EEE6D6; border-radius: 10px;
+    padding: 3px 10px; pointer-events: none;
+  }
+</style>
+<div class="reader-rendered-page" id="page"></div>
+<span class="page-badge" id="pageBadge"></span>
+
+<!-- The real content.js is all_frames + match_origin_as_fallback, so it
+     runs in this frame too (that's how extractPageTextRequest gets
+     answered). Loaded unmodified from the project root — never copy
+     its logic into the harness, or the harness silently stops testing
+     the real file. -->
+<script src="../content.js"></script>
+<script>
+(function () {
+  // ReadFlow analyzes English books for a Chinese-speaking reader (see
+  // background.js's CHAPTER_SYSTEM_PROMPT) — the captured pages need to
+  // be English text, same as a real Play Books page would be. A short,
+  // original continuing narrative — enough distinct pages to exercise
+  // multi-page capture, forward/backward advancing, and the reachedEnd
+  // path once mock-shell.html runs out of forward-gutter.
+  var PAGES = [
+    'The rain drummed steadily on the tin awning above the shop. She pushed open the door beneath a faded poster, and the little bell overhead gave a soft jingle. The shopkeeper glanced up at her, then dropped his gaze again, absorbed in the pile of secondhand books behind the counter.',
+    "It was purely by chance that she stumbled upon the notebook, its cover worn and mottled with age. Tucked between the pages was a letter that had never been sent, the ink smudged by damp, and something about it left her with a lingering, wistful sadness.",
+    "She folded the letter carefully and slipped it back where she had found it, though she couldn't bring herself to return the notebook to the shelf. Even though the rain outside showed no sign of letting up, she decided to stay a little longer and finish reading it.",
+    'Toward the final pages, the handwriting suddenly grew neat and deliberate, as if someone else had taken over the writing. That passage mentioned an address she had never heard of, along with a date just three days away.',
+    '"So, are you going to buy it?" the shopkeeper finally asked. She looked up, hesitated for a moment, then nodded. The bell rang once more — this time, as she pushed the door open to leave.'
+  ];
+
+  var pageEl = document.getElementById('page');
+  var badgeEl = document.getElementById('pageBadge');
+
+  function render(n, total) {
+    pageEl.textContent = PAGES[(n - 1) % PAGES.length];
+    badgeEl.textContent = '（模擬書本內容）第 ' + n + ' / ' + total + ' 頁';
+  }
+
+  render(1, PAGES.length);
+
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (data && data.source === 'mockreader' && data.type === 'setPage') {
+      render(data.page, data.total);
+    }
+  });
+})();
+</script>
