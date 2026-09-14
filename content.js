@@ -114,7 +114,7 @@ let bodyFontSize = clampBodyFontSize(parseInt(localStorage.getItem(BODY_FONT_SIZ
 // ── Chapter Guide state ──────────────────────────────────────────
 let panelLevel = 'B2';               // 'B1' | 'B2' | 'C1'
 let panelPageCount = 10;
-let panelCurrentPageOnly = false;
+let panelCurrentPageOnly = true;
 let panelVocabCap = 15;              // max vocab items the AI may list per analysis (5-30)
 let settingsOverlayOpen = false;     // gear-icon overlay, result state only
 let settingsDraft = null;            // { level, pageCount, currentPageOnly, vocabCap } while the overlay is open
@@ -127,6 +127,29 @@ let currentView = 'start';           // 'start' | 'loading' | 'result' | 'error'
 let panelProvider = 'gemini';        // 'gemini' | 'deepseek'
 let currentApiKey = '';
 let apiKeyEditOpen = false;
+
+// Whether hovering a 畫記'd word/frag shows the quick-translation card (see
+// the hover-card module below), and whether turning a page auto-runs a
+// silent single-page analysis + 畫記 (see the auto-analyze module further
+// down). Both are user preferences, not per-analysis settings, so they
+// live in chrome.storage.local (shared across every frame, unlike the
+// localStorage-based panelWidth/bodyFontSize above — both features run in
+// every frame including a book-content iframe that's cross-origin from,
+// and so doesn't share localStorage with, this top frame) and apply
+// immediately, the same way the provider select does.
+let hoverCardEnabled = true;
+let autoAnalyzeEnabled = true;
+if (typeof chrome !== 'undefined' && chrome.storage) {
+  chrome.storage.local.get(['hoverCardEnabled', 'autoAnalyzeEnabled'], (stored) => {
+    hoverCardEnabled = stored.hoverCardEnabled !== false;
+    autoAnalyzeEnabled = stored.autoAnalyzeEnabled !== false;
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if ('hoverCardEnabled' in changes) hoverCardEnabled = changes.hoverCardEnabled.newValue !== false;
+    if ('autoAnalyzeEnabled' in changes) autoAnalyzeEnabled = changes.autoAnalyzeEnabled.newValue !== false;
+  });
+}
 
 if (window === window.top && window.location.pathname.startsWith('/books')) {
   chrome.storage.local.get(['debugMode', 'debugModeError'], ({ debugMode, debugModeError }) => {
@@ -159,6 +182,15 @@ function initDrawer() {
   resizeHandle.addEventListener('pointerdown', onResizeHandlePointerDown);
   document.body.appendChild(resizeHandle);
 
+  // Capture phase: several drawer actions (e.g. pick-level, pick-tab) call a
+  // render* function that replaces drawerBody.innerHTML synchronously, which
+  // detaches the clicked element from the DOM before the event would reach
+  // a bubble-phase listener here — drawerBody.contains(e.target) then
+  // wrongly reports false for a click that was genuinely inside the drawer.
+  // Running in the capture phase checks containment before that mutation
+  // happens.
+  document.addEventListener('click', onOutsideDrawerClick, { capture: true });
+
   applyPanelWidth(panelWidth);
 
   chrome.storage.local.get(['provider', 'geminiApiKey', 'deepseekApiKey', 'apiKey'], (stored) => {
@@ -179,6 +211,19 @@ function setDrawerOpen(open) {
   drawerTab.classList.toggle('open', open);
   resizeHandle.classList.toggle('open', open);
   drawerTab.style.right = open ? (panelWidth - TAB_OVERLAP_PX) + 'px' : '';
+}
+
+// Closes the drawer on any click that lands outside it — the tab and the
+// resize handle are excluded so toggling open/closed via the tab, or
+// dragging the handle, doesn't immediately re-close what it just changed.
+// Only ever attached in the top frame (see initDrawer's window === window.top
+// guard), so this can't see clicks inside the cross-origin reader iframe —
+// it only catches clicks elsewhere in the top document (e.g. Play Books'
+// own chrome around the reader).
+function onOutsideDrawerClick(e) {
+  if (!drawerOpen) return;
+  if (drawerBody.contains(e.target) || drawerTab.contains(e.target) || resizeHandle.contains(e.target)) return;
+  setDrawerOpen(false);
 }
 
 function clampPanelWidth(width) {
@@ -278,6 +323,16 @@ function renderSettingsFields(source, scope) {
           <button class="readflow-stepper-btn" data-action="inc-vocab-cap" data-scope="${scope}">+</button>
           <span class="readflow-stepper-unit">個</span>
         </div>
+      </div>
+      <div class="readflow-settings-group">
+        <label class="readflow-checkbox-row">
+          <input type="checkbox" data-action="toggle-hover-card" ${hoverCardEnabled ? 'checked' : ''}>
+          在內文顯示 hover 翻譯小卡
+        </label>
+        <label class="readflow-checkbox-row">
+          <input type="checkbox" data-action="toggle-auto-analyze" ${autoAnalyzeEnabled ? 'checked' : ''}>
+          換頁時自動分析並畫記
+        </label>
       </div>
       <div class="readflow-settings-group">
         <div class="readflow-settings-label">使用的模型</div>
@@ -594,6 +649,20 @@ function onDrawerChange(e) {
     return;
   }
 
+  const hoverToggle = e.target.closest('[data-action="toggle-hover-card"]');
+  if (hoverToggle) {
+    hoverCardEnabled = hoverToggle.checked;
+    chrome.storage.local.set({ hoverCardEnabled });
+    return;
+  }
+
+  const autoAnalyzeToggle = e.target.closest('[data-action="toggle-auto-analyze"]');
+  if (autoAnalyzeToggle) {
+    autoAnalyzeEnabled = autoAnalyzeToggle.checked;
+    chrome.storage.local.set({ autoAnalyzeEnabled });
+    return;
+  }
+
   const el = e.target.closest('[data-action="toggle-current-page"]');
   if (!el) return;
   const scope = el.dataset.scope;
@@ -615,11 +684,21 @@ function speakWord(word) {
 // a separate "starred word" concept. markedWords here just mirrors what this
 // frame has already asked reader frames to toggle, purely to drive the
 // button's on/off style — no round-trip needed to know the current state.
+//
+// zh travels along with the toggle message (not just word) so the reader
+// frame — often a different, cross-origin iframe than this top frame that
+// holds lastResult — can stash it on the <mark> element itself and answer a
+// hover with no further round trip. See applyHighlightToggle.
 function toggleMark(word) {
   const key = word.toLowerCase();
-  if (markedWords.has(key)) markedWords.delete(key);
-  else markedWords.add(key);
-  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word });
+  if (markedWords.has(key)) {
+    markedWords.delete(key);
+    broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word });
+  } else {
+    markedWords.add(key);
+    const zh = (lastResult?.vocab.find((v) => v.word.toLowerCase() === key) || {}).zh;
+    broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word, zh });
+  }
   renderDrawerResult();
 }
 
@@ -629,9 +708,14 @@ function toggleMark(word) {
 // clause under a solid highlight reads as much heavier than a single word.
 function toggleGrammarMark(frag) {
   const key = normalizeFragKey(frag);
-  if (markedGrammar.has(key)) markedGrammar.delete(key);
-  else markedGrammar.add(key);
-  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleGrammarMarkRequest', frag });
+  if (markedGrammar.has(key)) {
+    markedGrammar.delete(key);
+    broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleGrammarMarkRequest', frag });
+  } else {
+    markedGrammar.add(key);
+    const note = (lastResult?.grammar.find((g) => normalizeFragKey(g.frag) === key) || {}).note;
+    broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleGrammarMarkRequest', frag, note });
+  }
   renderDrawerResult();
 }
 
@@ -639,18 +723,18 @@ function toggleGrammarMark(frag) {
 // marked" rather than "flip", so calling this for every vocab/grammar item
 // on every completed analysis (autoMarkResult below) never un-marks
 // something the user already turned on by hand.
-function markWordOn(word) {
+function markWordOn(word, zh) {
   const key = word.toLowerCase();
   if (markedWords.has(key)) return;
   markedWords.add(key);
-  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word });
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word, zh });
 }
 
-function markGrammarOn(frag) {
+function markGrammarOn(frag, note) {
   const key = normalizeFragKey(frag);
   if (markedGrammar.has(key)) return;
   markedGrammar.add(key);
-  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleGrammarMarkRequest', frag });
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleGrammarMarkRequest', frag, note });
 }
 
 // Proactively marks every vocab word and grammar frag from a finished
@@ -658,8 +742,8 @@ function markGrammarOn(frag) {
 // called right after lastResult is set, before the first render of the
 // result view, so the 畫記 buttons already render active.
 function autoMarkResult(result) {
-  result.vocab.forEach((v) => markWordOn(v.word));
-  result.grammar.forEach((g) => markGrammarOn(g.frag));
+  result.vocab.forEach((v) => markWordOn(v.word, v.zh));
+  result.grammar.forEach((g) => markGrammarOn(g.frag, g.note));
 }
 
 // ── Capture flow ───────────────────────────────────────────────────
@@ -683,6 +767,27 @@ function onStartCapture() {
     renderDrawerError('無法自動翻頁，請確認目前在書本閱讀頁面內，然後重新分析。');
     setDrawerOpen(true);
   }, CAPTURE_TIMEOUT_MS);
+}
+
+// Triggered by a real page turn (see the auto-analyze page-change watcher
+// further down) — same pipeline as onStartCapture, forced to a single
+// page and marked `silent` so the whole thing stays invisible unless the
+// Drawer already happens to be open. autoAnalyzeInFlight guards against a
+// second page turn (or a stray duplicate 'autoPageChanged' — see the
+// watcher's own comment on why more than one frame can fire it) queuing
+// an overlapping AI call; the timeout is a fallback in case a
+// chapterCaptureResult never comes back (e.g. the reader-content frame
+// went away mid-turn) so the flag doesn't get stuck true forever.
+const AUTO_CAPTURE_TIMEOUT_MS = 8000;
+let autoAnalyzeInFlight = false;
+let autoCaptureTimeoutId = null;
+
+function triggerAutoAnalyze() {
+  if (!autoAnalyzeEnabled || autoAnalyzeInFlight || DEBUG_MODE) return;
+  autoAnalyzeInFlight = true;
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'startChapterCapture', pageCount: 1, silent: true });
+  clearTimeout(autoCaptureTimeoutId);
+  autoCaptureTimeoutId = setTimeout(() => { autoAnalyzeInFlight = false; }, AUTO_CAPTURE_TIMEOUT_MS);
 }
 
 // ── Debug mode: local, fake capture + analysis ──────────────────────
@@ -772,13 +877,47 @@ function broadcastToDescendantFrames(win, message, depth = 0) {
   }
 }
 
-function updateLoadingProgress(current, total) {
+function updateLoadingProgress(current, total, silent) {
+  if (silent) return; // auto-analyze stays invisible — no loading UI to update
   clearTimeout(captureTimeoutId);
   if (!drawerBody) return;
   renderDrawerLoading(current, total);
 }
 
-function onCaptureFinished(pages, reachedEnd) {
+// A silent, single-page capture triggered by a real page turn (see the
+// auto-analyze module below) reuses this same pipeline but must never
+// touch the Drawer's own view: no loading state, no error card, no forced
+// open — a wrong/missing API key or a flaky AI call just quietly does
+// nothing, per the "don't interrupt reading" choice for this feature. If
+// the Drawer already happens to be open, its result is refreshed so it
+// doesn't look stale, but that's the only visible side effect.
+function onCaptureFinished(pages, reachedEnd, silent) {
+  if (silent) {
+    clearTimeout(autoCaptureTimeoutId);
+    chrome.storage.local.get(['geminiApiKey', 'deepseekApiKey', 'apiKey'], (stored) => {
+      const apiKey = pickApiKeyForProvider(panelProvider, stored);
+      if (!apiKey) { autoAnalyzeInFlight = false; return; }
+
+      chrome.runtime.sendMessage(
+        { type: 'analyzeChapter', pages, apiKey, provider: panelProvider, level: panelLevel, vocabCap: panelVocabCap },
+        (response) => {
+          autoAnalyzeInFlight = false;
+          if (chrome.runtime.lastError || response?.error) return;
+          try {
+            lastResult = response.result;
+            lastMeta = { pageCount: pages.length, level: panelLevel, reachedEnd, usage: response.usage, debug: false };
+            resultTab = 'outline';
+            autoMarkResult(lastResult);
+            if (drawerOpen) renderDrawerResult();
+          } catch (e) {
+            // malformed result — quiet fail, same reasoning as above
+          }
+        }
+      );
+    });
+    return;
+  }
+
   clearTimeout(captureTimeoutId);
   chrome.storage.local.get(['geminiApiKey', 'deepseekApiKey', 'apiKey'], (stored) => {
     const apiKey = pickApiKeyForProvider(panelProvider, stored);
@@ -829,11 +968,13 @@ function onCaptureFinished(pages, reachedEnd) {
 window.addEventListener('message', (event) => {
   const data = event.data;
   if (data?.source !== 'readflow') return;
-  if (data.type === 'startChapterCapture') handleStartChapterCapture(data.pageCount);
-  if (data.type === 'chapterCaptureProgress') updateLoadingProgress(data.current, data.total);
-  if (data.type === 'chapterCaptureResult') onCaptureFinished(data.pages, data.reachedEnd);
-  if (data.type === 'toggleHighlightRequest') applyHighlightToggle(data.word);
-  if (data.type === 'toggleGrammarMarkRequest') applyGrammarMarkToggle(data.frag);
+  if (data.type === 'startChapterCapture') handleStartChapterCapture(data.pageCount, data.silent);
+  if (data.type === 'chapterCaptureProgress') updateLoadingProgress(data.current, data.total, data.silent);
+  if (data.type === 'chapterCaptureResult') onCaptureFinished(data.pages, data.reachedEnd, data.silent);
+  if (data.type === 'toggleHighlightRequest') applyHighlightToggle(data.word, data.zh);
+  if (data.type === 'toggleGrammarMarkRequest') applyGrammarMarkToggle(data.frag, data.note);
+  if (data.type === 'autoPageChanged') triggerAutoAnalyze();
+  if (data.type === 'closeDrawerRequest') setDrawerOpen(false);
   if (data.type === 'extractPageTextRequest') {
     event.source.postMessage({
       source: 'readflow',
@@ -844,23 +985,37 @@ window.addEventListener('message', (event) => {
   }
 });
 
+// The drawer only ever lives in the top frame (see initDrawer's
+// window === window.top guard), so a reader frame — often a different,
+// cross-origin iframe than the top frame — never sees clicks reach the top
+// frame's onOutsideDrawerClick listener directly; a click event doesn't
+// cross a cross-origin frame boundary on its own. Every click inside a
+// non-top frame is definitionally "outside" the drawer, so report it up to
+// window.top the same way chapterCaptureResult/chapterCaptureProgress
+// already do, and let the shared listener above close the drawer.
+if (window !== window.top) {
+  document.addEventListener('click', () => {
+    window.top.postMessage({ source: 'readflow', type: 'closeDrawerRequest' }, '*');
+  });
+}
+
 let capturing = false;
 
-function handleStartChapterCapture(pageCount) {
+function handleStartChapterCapture(pageCount, silent) {
   if (!document.querySelector('.forward-gutter')) return; // not the reader-content frame
   if (capturing) return;
   capturing = true;
-  runChapterCapture(pageCount).finally(() => { capturing = false; });
+  runChapterCapture(pageCount, silent).finally(() => { capturing = false; });
 }
 
-async function runChapterCapture(pageCount) {
+async function runChapterCapture(pageCount, silent) {
   const collected = [];
   let advances = 0;
   let reachedEnd = false;
 
   for (let i = 0; i < pageCount; i++) {
     collected.push(await extractPageText());
-    notifyProgress(i + 1, pageCount);
+    notifyProgress(i + 1, pageCount, silent);
 
     if (i === pageCount - 1) break;
 
@@ -879,6 +1034,7 @@ async function runChapterCapture(pageCount) {
     type: 'chapterCaptureResult',
     pages: collected,
     reachedEnd,
+    silent,
   }, '*');
 }
 
@@ -992,7 +1148,7 @@ function wrapTextRanges(nodes, ranges, makeWrapper) {
 // word (in its base or inflected form) in its text will find anything to do.
 const highlightedWords = new Set();
 
-function applyHighlightToggle(word) {
+function applyHighlightToggle(word, zh) {
   const key = word.toLowerCase();
   if (highlightedWords.has(key)) {
     document.querySelectorAll('mark.readflow-highlight[data-word="' + CSS.escape(key) + '"]').forEach((mark) => {
@@ -1011,6 +1167,7 @@ function applyHighlightToggle(word) {
     const mark = document.createElement('mark');
     mark.className = 'readflow-highlight';
     mark.dataset.word = key;
+    if (zh) mark.dataset.zh = zh;
     mark.textContent = text;
     return mark;
   });
@@ -1024,7 +1181,7 @@ function applyHighlightToggle(word) {
 // get the lighter underline treatment instead (see styles.css).
 const grammarMarkedFrags = new Set();
 
-function applyGrammarMarkToggle(frag) {
+function applyGrammarMarkToggle(frag, note) {
   const key = normalizeFragKey(frag);
   if (grammarMarkedFrags.has(key)) {
     document.querySelectorAll('u.readflow-grammar-mark[data-frag-key="' + CSS.escape(key) + '"]').forEach((u) => {
@@ -1043,11 +1200,173 @@ function applyGrammarMarkToggle(frag) {
     const u = document.createElement('u');
     u.className = 'readflow-grammar-mark';
     u.dataset.fragKey = key;
+    u.dataset.frag = frag;
+    if (note) u.dataset.note = note;
     u.textContent = text;
     return u;
   });
   grammarMarkedFrags.add(key);
 }
+
+// ── Hover cards for already-畫記'd text ───────────────────────────
+// Reading-time lookup, not a learning aid: hovering a marked word/frag
+// shows only the word/frag plus its existing zh/note — no pos, quote, or
+// rewrite — so a glance settles it without pulling the reader's eye all
+// the way to the side drawer. All data was already fetched during
+// analysis; this only ever reads what toggleMark/toggleGrammarMark
+// (top frame, see above) already broadcast onto the marked elements'
+// dataset in this frame — no new AI call, no lookup outside this frame.
+
+function buildVocabHoverHtml(word, zh) {
+  return `<span class="readflow-hover-word">${escapeHtml(word)}</span><span class="readflow-hover-zh">${escapeHtml(zh)}</span>`;
+}
+
+function buildGrammarHoverHtml(frag, note) {
+  return `<code class="readflow-hover-frag">${escapeHtml(frag)}</code><p class="readflow-hover-note">${escapeHtml(note)}</p>`;
+}
+
+// Pure positioning math, kept separate from the DOM so it's unit-testable:
+// prefers sitting just above the anchor, flips below when that would run
+// off the top of the viewport, and clamps horizontally so the card never
+// runs off either side.
+const HOVER_CARD_GAP_PX = 8;
+
+function computeTooltipPosition(anchorRect, tooltipSize, viewport, gap = HOVER_CARD_GAP_PX) {
+  let top = anchorRect.top - tooltipSize.height - gap;
+  if (top < 0) top = anchorRect.bottom + gap;
+  if (top + tooltipSize.height > viewport.height) top = viewport.height - tooltipSize.height;
+
+  let left = anchorRect.left;
+  if (left + tooltipSize.width > viewport.width) left = viewport.width - tooltipSize.width;
+  if (left < 0) left = 0;
+
+  return { top, left };
+}
+
+let hoverCardEl = null;
+
+function ensureHoverCard() {
+  if (hoverCardEl) return hoverCardEl;
+  hoverCardEl = document.createElement('div');
+  hoverCardEl.className = 'readflow-hover-card';
+  document.body.appendChild(hoverCardEl);
+  return hoverCardEl;
+}
+
+function showHoverCard(anchorEl, html) {
+  const card = ensureHoverCard();
+  card.innerHTML = html;
+  card.classList.add('visible');
+  const anchorRect = anchorEl.getBoundingClientRect();
+  const tooltipSize = { width: card.offsetWidth, height: card.offsetHeight };
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const { top, left } = computeTooltipPosition(anchorRect, tooltipSize, viewport);
+  card.style.top = top + 'px';
+  card.style.left = left + 'px';
+}
+
+function hideHoverCard() {
+  if (hoverCardEl) hoverCardEl.classList.remove('visible');
+}
+
+// A grammar frag can overlap a vocab word — e.g. autoMarkResult marks vocab
+// first, so a <u> landing on an already-<mark>ed word nests inside it
+// (mark.readflow-highlight > u.readflow-grammar-mark), but a manual 畫記
+// toggle order can just as easily nest it the other way around. Checking
+// for a mark ancestor first, regardless of which one .closest() would find
+// nearer in the tree, makes vocab win on overlap independent of nesting.
+function findHoverTarget(el) {
+  return el.closest('mark.readflow-highlight') || el.closest('u.readflow-grammar-mark');
+}
+
+document.addEventListener('mouseover', (e) => {
+  if (!hoverCardEnabled) return;
+  const target = findHoverTarget(e.target);
+  if (!target) return;
+  if (target.classList.contains('readflow-highlight')) {
+    if (!target.dataset.zh) return;
+    showHoverCard(target, buildVocabHoverHtml(target.dataset.word, target.dataset.zh));
+  } else {
+    if (!target.dataset.note) return;
+    showHoverCard(target, buildGrammarHoverHtml(target.dataset.frag || target.textContent, target.dataset.note));
+  }
+});
+
+document.addEventListener('mouseout', (e) => {
+  const target = findHoverTarget(e.target);
+  if (!target) return;
+  const related = e.relatedTarget;
+  if (related && findHoverTarget(related) === target) return; // moved within the same marked run
+  hideHoverCard();
+});
+
+// ── Auto-analyze on page turn ─────────────────────────────────────
+// Detects the reader turning a page — by click, keyboard, or swipe, it
+// doesn't matter which — by watching the frame that actually shows page
+// text for a genuine change, then asking the top frame to run a silent
+// single-page analysis (triggerAutoAnalyze, defined above with the rest
+// of the capture flow) so 畫記 marks appear without the reader ever having
+// to pull the Drawer out by hand.
+//
+// A MutationObserver alone isn't enough: applying 畫記 marks mutates this
+// exact subtree too (wrapping matched text in <mark>/<u>), so a callback
+// that fired on "did anything mutate" would immediately re-trigger itself
+// on its own marking — analyze, mark, see the mark as a "page change",
+// analyze again, forever. Wrapping never changes the visible text though,
+// so comparing extractLocalText() before/after (not just noticing that
+// something moved) is what tells a real page turn apart from that.
+//
+// Both the reader's outer, page-turn-control frame and (when the actual
+// text lives in a further nested, cross-origin frame) that inner frame
+// can end up running this watcher, since either one might be the frame
+// that truly shows page text depending on how a given book is rendered —
+// see extractPageText's own fallback below for the same split. On a book
+// where both frames' visible text happens to change together this can
+// fire from both, but triggerAutoAnalyze's in-flight guard makes that at
+// worst one extra analysis of the same page, never a correctness problem.
+// Play Books is a client-rendered SPA: `.forward-gutter`/`.reader-rendered-page`
+// don't exist yet at document_idle (when the content script runs) — they're
+// inserted later, asynchronously, once the reader itself finishes loading.
+// Every other place in this file that needs those selectors (handleStart-
+// ChapterCapture, clickForward/clickBackward, extractLocalText) checks for
+// them lazily, at the moment they're actually used (a click, a capture
+// request) — never once at load time — specifically to survive that race.
+// A one-shot existence check here would lose it: if the reader hasn't
+// rendered yet, the frame gives up and never attaches an observer at all,
+// for the rest of the page's life. So `pageChangeFrameConfirmed` re-checks
+// on every mutation instead of once — since the SPA's own async insertion
+// of those elements IS a mutation, the very mutation that renders the
+// reader in is what confirms this frame as relevant.
+const PAGE_CHANGE_DEBOUNCE_MS = 500;
+let pageChangeDebounceId = null;
+let lastObservedPageText = null;
+let pageChangeFrameConfirmed = false;
+
+function initPageChangeWatcher() {
+  const observer = new MutationObserver(() => {
+    clearTimeout(pageChangeDebounceId);
+    pageChangeDebounceId = setTimeout(checkForPageChange, PAGE_CHANGE_DEBOUNCE_MS);
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+}
+
+function checkForPageChange() {
+  if (!pageChangeFrameConfirmed) {
+    const isReaderFrame = !!document.querySelector('.forward-gutter');
+    const hasContentEl = !!document.querySelector('.reader-rendered-page');
+    if (!isReaderFrame && !hasContentEl) return; // still not a frame that can see real page content
+    pageChangeFrameConfirmed = true;
+    lastObservedPageText = extractLocalText();
+    return; // just confirmed/baselined — don't treat the reader's own first render as a "page turn"
+  }
+
+  const text = extractLocalText();
+  if (!text || text === lastObservedPageText) return;
+  lastObservedPageText = text;
+  window.top.postMessage({ source: 'readflow', type: 'autoPageChanged' }, '*');
+}
+
+initPageChangeWatcher();
 
 // The frame with the page-turn controls is a shell around a further
 // nested frame that actually holds the readable page text; that nested
@@ -1112,12 +1431,13 @@ function clickBackward() {
   if (gutter) gutter.click();
 }
 
-function notifyProgress(current, total) {
+function notifyProgress(current, total, silent) {
   window.top.postMessage({
     source: 'readflow',
     type: 'chapterCaptureProgress',
     current,
     total,
+    silent,
   }, '*');
 }
 
@@ -1130,5 +1450,6 @@ if (typeof module !== 'undefined') {
     clampPageCount, clampVocabCap, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
     collectTextNodes, findAllMatchRanges, wrapTextRanges,
     providerLabel, pickApiKeyForProvider,
+    computeTooltipPosition, buildVocabHoverHtml, buildGrammarHoverHtml, findHoverTarget,
   };
 }

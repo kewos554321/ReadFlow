@@ -339,7 +339,7 @@
 .readflow-usage { color: var(--rf-neutral-600); font-size: 0.76em; margin-top: var(--rf-space-3); }
 
 /* — highlight mark left in the book's own page content (unrelated to the panel's tokens) — */
-mark.readflow-highlight { background: #ffe066; color: inherit; }
+mark.readflow-highlight { background: #ffe066; color: inherit; cursor: help; }
 
 /* Grammar frags get an underline instead of a background — a whole clause
    under a solid highlight reads much heavier than a single highlighted
@@ -349,5 +349,29 @@ mark.readflow-highlight { background: #ffe066; color: inherit; }
    rendering, not this stylesheet's ground. */
 u.readflow-grammar-mark {
   text-decoration: underline; text-decoration-color: #7a8a5e; text-decoration-thickness: 2px;
-  text-underline-offset: 3px; color: inherit;
+  text-underline-offset: 3px; color: inherit; cursor: help;
 }
+
+/* Hover card for already-畫記'd text — same reasoning as the highlight/
+   grammar marks above: fixed colors, not --rf-* tokens, because this
+   renders inside the book's own page content (light or dark reading
+   theme), not the panel chrome. Reading-time lookup, not a learning
+   card, so it's deliberately small and plain — no icons, no buttons. */
+.readflow-hover-card {
+  position: fixed; z-index: 2147483647;
+  max-width: 280px; box-sizing: border-box;
+  background: #2e2b25; color: #f5ead8;
+  border-radius: 8px; padding: 7px 11px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  font: 400 13px/1.5 "Figtree", system-ui, sans-serif;
+  pointer-events: none; opacity: 0; visibility: hidden;
+  transition: opacity 0.1s ease;
+}
+.readflow-hover-card.visible { opacity: 1; visibility: visible; }
+.readflow-hover-word { font-weight: 600; margin-right: 6px; }
+.readflow-hover-zh { }
+.readflow-hover-frag {
+  display: block; font: 400 12px/1.4 ui-monospace, monospace;
+  color: #d8cdb8; margin-bottom: 3px;
+}
+.readflow-hover-note { margin: 0; }

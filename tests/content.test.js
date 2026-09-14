@@ -2,6 +2,7 @@ const {
   clampPageCount, clampVocabCap, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
   collectTextNodes, findAllMatchRanges, wrapTextRanges,
   providerLabel, pickApiKeyForProvider,
+  computeTooltipPosition, buildVocabHoverHtml, buildGrammarHoverHtml, findHoverTarget,
 } = require('../content.js');
 
 describe('providerLabel', () => {
@@ -278,6 +279,96 @@ describe('wrapTextRanges', () => {
     document.body.innerHTML = '<p>hello world</p>';
     wrapTextRanges(textNodesOf(document.body), [], wrap);
     expect(document.body.querySelector('p').innerHTML).toBe('hello world');
+  });
+});
+
+// The hover card (mark/underline → small popup on the book page itself)
+// only ever shows already-畫記'd vocab/grammar, reusing data already fetched
+// during analysis — no extra AI call, no learning-mode extras (pos/quote/
+// rewrite), just the word/frag plus its translation for a quick, accurate
+// glance while reading.
+describe('computeTooltipPosition', () => {
+  const viewport = { width: 800, height: 600 };
+  const tooltipSize = { width: 200, height: 60 };
+
+  test('places the tooltip above the anchor by default', () => {
+    const anchorRect = { top: 300, bottom: 320, left: 100, right: 150 };
+    const pos = computeTooltipPosition(anchorRect, tooltipSize, viewport);
+    expect(pos).toEqual({ top: 300 - 60 - 8, left: 100 });
+  });
+
+  test('flips below the anchor when there is not enough room above', () => {
+    const anchorRect = { top: 10, bottom: 30, left: 100, right: 150 };
+    const pos = computeTooltipPosition(anchorRect, tooltipSize, viewport);
+    expect(pos).toEqual({ top: 30 + 8, left: 100 });
+  });
+
+  test('clamps the left edge so the tooltip never runs off the right of the viewport', () => {
+    const anchorRect = { top: 300, bottom: 320, left: 750, right: 780 };
+    const pos = computeTooltipPosition(anchorRect, tooltipSize, viewport);
+    expect(pos.left).toBe(viewport.width - tooltipSize.width);
+  });
+
+  test('clamps the left edge so the tooltip never runs off the left of the viewport', () => {
+    const anchorRect = { top: 300, bottom: 320, left: -50, right: -10 };
+    const pos = computeTooltipPosition(anchorRect, tooltipSize, viewport);
+    expect(pos.left).toBe(0);
+  });
+});
+
+describe('buildVocabHoverHtml', () => {
+  test('renders the word and its zh meaning only, no pos/quote', () => {
+    expect(buildVocabHoverHtml('mottled', '表面帶有斑駁色塊')).toBe(
+      '<span class="readflow-hover-word">mottled</span><span class="readflow-hover-zh">表面帶有斑駁色塊</span>'
+    );
+  });
+
+  test('escapes HTML-significant characters in both fields', () => {
+    expect(buildVocabHoverHtml('<b>', '"quote"')).toBe(
+      '<span class="readflow-hover-word">&lt;b&gt;</span><span class="readflow-hover-zh">&quot;quote&quot;</span>'
+    );
+  });
+});
+
+describe('buildGrammarHoverHtml', () => {
+  test('renders the frag and its note only, no rewrite', () => {
+    expect(buildGrammarHoverHtml('as if someone else had taken over', '假設語氣')).toBe(
+      '<code class="readflow-hover-frag">as if someone else had taken over</code><p class="readflow-hover-note">假設語氣</p>'
+    );
+  });
+
+  test('escapes HTML-significant characters in both fields', () => {
+    expect(buildGrammarHoverHtml('<i>x</i>', '<b>y</b>')).toBe(
+      '<code class="readflow-hover-frag">&lt;i&gt;x&lt;/i&gt;</code><p class="readflow-hover-note">&lt;b&gt;y&lt;/b&gt;</p>'
+    );
+  });
+});
+
+describe('findHoverTarget', () => {
+  // e.target for a real mouseover event is always an Element (pointer
+  // events never target a text node directly), so these pass the innermost
+  // element the cursor would actually be over — same as production usage.
+  test('picks the vocab mark when a grammar underline is nested inside it', () => {
+    document.body.innerHTML = '<mark class="readflow-highlight"><u class="readflow-grammar-mark">word</u></mark>';
+    const target = findHoverTarget(document.querySelector('u'));
+    expect(target.tagName).toBe('MARK');
+  });
+
+  test('still picks the vocab mark when it is nested inside the grammar underline', () => {
+    document.body.innerHTML = '<u class="readflow-grammar-mark"><mark class="readflow-highlight">word</mark></u>';
+    const target = findHoverTarget(document.querySelector('mark'));
+    expect(target.tagName).toBe('MARK');
+  });
+
+  test('falls back to the grammar underline when there is no vocab mark at all', () => {
+    document.body.innerHTML = '<u class="readflow-grammar-mark">phrase</u>';
+    const target = findHoverTarget(document.querySelector('u'));
+    expect(target.tagName).toBe('U');
+  });
+
+  test('returns null when neither is an ancestor', () => {
+    document.body.innerHTML = '<p>plain text</p>';
+    expect(findHoverTarget(document.querySelector('p'))).toBeNull();
   });
 });
 
