@@ -36,6 +36,10 @@ function clampPageCount(count) {
   return Math.max(1, Math.min(100, count));
 }
 
+function clampVocabCap(count) {
+  return Math.max(5, Math.min(30, count));
+}
+
 function computeTabCounts(result) {
   return {
     outline: result.points.length,
@@ -111,8 +115,9 @@ let bodyFontSize = clampBodyFontSize(parseInt(localStorage.getItem(BODY_FONT_SIZ
 let panelLevel = 'B2';               // 'B1' | 'B2' | 'C1'
 let panelPageCount = 10;
 let panelCurrentPageOnly = false;
+let panelVocabCap = 15;              // max vocab items the AI may list per analysis (5-30)
 let settingsOverlayOpen = false;     // gear-icon overlay, result state only
-let settingsDraft = null;            // { level, pageCount, currentPageOnly } while the overlay is open
+let settingsDraft = null;            // { level, pageCount, currentPageOnly, vocabCap } while the overlay is open
 let markedWords = new Set();         // words this frame has asked to highlight, for 畫記 button state
 let markedGrammar = new Set();       // normalized frags this frame has asked to underline, for 畫記 button state
 let lastResult = null;               // { scene, points, vocab, grammar }
@@ -266,6 +271,15 @@ function renderSettingsFields(source, scope) {
         </label>
       </div>
       <div class="readflow-settings-group">
+        <div class="readflow-settings-label">單字標記上限</div>
+        <div class="readflow-stepper">
+          <button class="readflow-stepper-btn" data-action="dec-vocab-cap" data-scope="${scope}">−</button>
+          <span class="readflow-stepper-value">${source.vocabCap}</span>
+          <button class="readflow-stepper-btn" data-action="inc-vocab-cap" data-scope="${scope}">+</button>
+          <span class="readflow-stepper-unit">個</span>
+        </div>
+      </div>
+      <div class="readflow-settings-group">
         <div class="readflow-settings-label">使用的模型</div>
         <select class="readflow-provider-select" data-action="pick-provider">
           <option value="gemini"${panelProvider === 'gemini' ? ' selected' : ''}>Gemini</option>
@@ -289,7 +303,7 @@ function renderSettingsFields(source, scope) {
 }
 
 function currentSettingsSource() {
-  return { level: panelLevel, pageCount: panelPageCount, currentPageOnly: panelCurrentPageOnly };
+  return { level: panelLevel, pageCount: panelPageCount, currentPageOnly: panelCurrentPageOnly, vocabCap: panelVocabCap };
 }
 
 // ── Rendering: start state (before any analysis) ─────────────────
@@ -383,7 +397,7 @@ function renderTabBody(result, tab) {
             <button class="readflow-mark-btn${marked ? ' active' : ''}" data-action="toggle-mark" data-word="${escapeHtml(v.word)}">${svgIcon('mark', 14)}畫記</button>
           </div>
           <p class="readflow-vocab-zh">${escapeHtml(v.zh)}</p>
-          <p class="readflow-vocab-quote">${escapeHtml(v.quote)}</p>
+          ${v.quote ? `<p class="readflow-vocab-quote">${escapeHtml(v.quote)}</p>` : ''}
         </div>
       `;
     }).join('');
@@ -509,7 +523,7 @@ function onDrawerClick(e) {
   if (action === 'reanalyze') { onStartCapture(); return; }
 
   if (action === 'open-settings') {
-    settingsDraft = { level: panelLevel, pageCount: panelPageCount, currentPageOnly: panelCurrentPageOnly };
+    settingsDraft = { level: panelLevel, pageCount: panelPageCount, currentPageOnly: panelCurrentPageOnly, vocabCap: panelVocabCap };
     settingsOverlayOpen = true;
     renderDrawerResult();
     return;
@@ -524,6 +538,7 @@ function onDrawerClick(e) {
     panelLevel = settingsDraft.level;
     panelPageCount = settingsDraft.pageCount;
     panelCurrentPageOnly = settingsDraft.currentPageOnly;
+    panelVocabCap = settingsDraft.vocabCap;
     settingsOverlayOpen = false;
     if (levelChanged) onStartCapture();
     else renderDrawerResult();
@@ -538,6 +553,12 @@ function onDrawerClick(e) {
     const delta = action === 'inc-pages' ? 1 : -1;
     if (scope === 'start') { panelPageCount = clampPageCount(panelPageCount + delta); renderDrawerStart(); }
     else { settingsDraft.pageCount = clampPageCount(settingsDraft.pageCount + delta); renderDrawerResult(); }
+    return;
+  }
+  if (action === 'dec-vocab-cap' || action === 'inc-vocab-cap') {
+    const delta = action === 'inc-vocab-cap' ? 5 : -5;
+    if (scope === 'start') { panelVocabCap = clampVocabCap(panelVocabCap + delta); renderDrawerStart(); }
+    else { settingsDraft.vocabCap = clampVocabCap(settingsDraft.vocabCap + delta); renderDrawerResult(); }
     return;
   }
   if (action === 'pick-tab') { resultTab = el.dataset.tab; renderDrawerResult(); return; }
@@ -768,7 +789,7 @@ function onCaptureFinished(pages, reachedEnd) {
     }
 
     chrome.runtime.sendMessage(
-      { type: 'analyzeChapter', pages, apiKey, provider: panelProvider, level: panelLevel },
+      { type: 'analyzeChapter', pages, apiKey, provider: panelProvider, level: panelLevel, vocabCap: panelVocabCap },
       (response) => {
         if (chrome.runtime.lastError || response?.error) {
           const msg = response?.error || chrome.runtime.lastError?.message;
@@ -1106,7 +1127,7 @@ function wait(ms) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    clampPageCount, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
+    clampPageCount, clampVocabCap, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
     collectTextNodes, findAllMatchRanges, wrapTextRanges,
     providerLabel, pickApiKeyForProvider,
   };

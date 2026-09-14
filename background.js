@@ -7,8 +7,11 @@ const LEVEL_LABELS = {
   C1: 'C1（進階）',
 };
 
-function buildChapterSystemPrompt(level) {
+const DEFAULT_VOCAB_CAP = 15;
+
+function buildChapterSystemPrompt(level, vocabCap) {
   const label = LEVEL_LABELS[level] || LEVEL_LABELS.B2;
+  const cap = vocabCap || DEFAULT_VOCAB_CAP;
   return `# Role
 你是一位精通第二語言習得（SLA）與英文閱讀輔助的專業導師。
 
@@ -20,19 +23,25 @@ function buildChapterSystemPrompt(level) {
 
 # Constraints
 1. scene／points 嚴禁劇透結局或關鍵轉折，只描述場景/主題，不描述結果。
-2. vocab 與 grammar 各挑選對 ${label} 程度讀者最有幫助的 3-5 個重點，
-   但每個項目都要有足夠深度：不能只給一個中文翻譯就結束。
+2. vocab 要列出這段文字中所有對 ${label} 程度讀者來說偏難、可能造成
+   閱讀障礙的字（不是精選重點，是盡量完整的清單），但最多列出 ${cap}
+   個，超過時只保留最關鍵的 ${cap} 個。grammar 挑選對 ${label} 程度
+   讀者最有幫助的 3-5 個重點，且要有足夠深度：不能只給一個中文翻譯
+   或一句話就結束。
 3. 輸出雖然要有深度，但仍須保持精簡有重點，避免無意義的重複贅字，
    適合在小螢幕上快速瀏覽。
+4. 所有中文內容（scene、points、vocab 的 zh、grammar 的 note／rewrite）
+   一律使用繁體中文，嚴禁出現任何簡體字。
 
 # Output Format
 嚴格輸出符合 responseSchema 的 JSON，不要輸出任何 JSON 以外的文字：
 - scene：1-2 句話說明這段內容的場景與主題。
 - points：3-4 條字串，每條說明人物/論點，以及這段內容在整體脈絡中
   的作用（例如：是開場鋪陳、論證的轉折，還是案例佐證）。
-- vocab：3-5 個項目，每個項目含 word（單字原形）、pos（詞性，例如
-  "n." "adj." "v."）、zh（中文解釋，適合 ${label} 程度）、quote（引用
-  原文例句或改寫成更簡單的說法，說明這個字實際上是怎麼被使用的）。
+- vocab：最多 ${cap} 個項目，每個項目含 word（單字原形）、pos（詞性，
+  例如 "n." "adj." "v."）、zh（中文解釋，適合 ${label} 程度）、quote
+  （可選，引用原文例句或改寫成更簡單的說法，說明這個字實際上是怎麼
+  被使用的；沒有特別值得引用的例句時可省略）。
 - grammar：3-5 個項目，每個項目含 frag（原文關鍵片段）、note（詳細
   說明句構或時態為何值得注意，可以怎麼拆解理解）、rewrite（更口語化
   的改寫版本）。`;
@@ -53,7 +62,7 @@ const CHAPTER_RESPONSE_SCHEMA = {
           zh: { type: 'string' },
           quote: { type: 'string' },
         },
-        required: ['word', 'pos', 'zh', 'quote'],
+        required: ['word', 'pos', 'zh'],
       },
     },
     grammar: {
@@ -78,11 +87,11 @@ function joinPageTexts(pages) {
   return pages.filter((p) => p && p.trim()).join('\n\n---\n\n');
 }
 
-function buildChapterRequestBody(pages, level) {
+function buildChapterRequestBody(pages, level, vocabCap) {
   const joined = joinPageTexts(pages).slice(0, CHAPTER_TEXT_CHAR_CAP);
   return {
     system_instruction: {
-      parts: [{ text: buildChapterSystemPrompt(level) }]
+      parts: [{ text: buildChapterSystemPrompt(level, vocabCap) }]
     },
     contents: [{
       role: 'user',
@@ -109,12 +118,12 @@ function normalizeChapterResult(raw) {
   };
 }
 
-async function callGeminiForChapter(apiKey, pages, level) {
+async function callGeminiForChapter(apiKey, pages, level, vocabCap) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(buildChapterRequestBody(pages, level)),
+    body: JSON.stringify(buildChapterRequestBody(pages, level, vocabCap)),
   });
 
   const data = await response.json();
@@ -145,12 +154,12 @@ async function callGeminiForChapter(apiKey, pages, level) {
   };
 }
 
-function buildDeepseekRequestBody(pages, level) {
+function buildDeepseekRequestBody(pages, level, vocabCap) {
   const joined = joinPageTexts(pages).slice(0, CHAPTER_TEXT_CHAR_CAP);
   return {
     model: DEEPSEEK_MODEL,
     messages: [
-      { role: 'system', content: buildChapterSystemPrompt(level) },
+      { role: 'system', content: buildChapterSystemPrompt(level, vocabCap) },
       { role: 'user', content: joined },
     ],
     response_format: { type: 'json_object' },
@@ -158,14 +167,14 @@ function buildDeepseekRequestBody(pages, level) {
   };
 }
 
-async function callDeepSeekForChapter(apiKey, pages, level) {
+async function callDeepSeekForChapter(apiKey, pages, level, vocabCap) {
   const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify(buildDeepseekRequestBody(pages, level)),
+    body: JSON.stringify(buildDeepseekRequestBody(pages, level, vocabCap)),
   });
 
   const data = await response.json();
@@ -204,16 +213,16 @@ async function callDeepSeekForChapter(apiKey, pages, level) {
   };
 }
 
-function callAIForChapter(provider, apiKey, pages, level) {
-  if (provider === 'deepseek') return callDeepSeekForChapter(apiKey, pages, level);
-  return callGeminiForChapter(apiKey, pages, level);
+function callAIForChapter(provider, apiKey, pages, level, vocabCap) {
+  if (provider === 'deepseek') return callDeepSeekForChapter(apiKey, pages, level, vocabCap);
+  return callGeminiForChapter(apiKey, pages, level, vocabCap);
 }
 
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== 'analyzeChapter') return false;
-    const { pages, apiKey, provider, level } = message;
-    callAIForChapter(provider, apiKey, pages, level)
+    const { pages, apiKey, provider, level, vocabCap } = message;
+    callAIForChapter(provider, apiKey, pages, level, vocabCap)
       .then(({ result, usage }) => sendResponse({ result, usage }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -231,5 +240,6 @@ if (typeof module !== 'undefined') {
     buildChapterSystemPrompt,
     normalizeChapterResult,
     CHAPTER_RESPONSE_SCHEMA,
+    DEFAULT_VOCAB_CAP,
   };
 }

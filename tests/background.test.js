@@ -37,6 +37,15 @@ test('buildChapterSystemPrompt interpolates the requested level', () => {
   expect(buildChapterSystemPrompt(undefined)).toContain('B1-B2（中階）');
 });
 
+test('buildChapterSystemPrompt interpolates the requested vocab cap, defaulting to 15', () => {
+  expect(buildChapterSystemPrompt('B2', 20)).toContain('最多 20 個');
+  expect(buildChapterSystemPrompt('B2')).toContain('最多 15 個');
+});
+
+test('buildChapterSystemPrompt forbids simplified Chinese output', () => {
+  expect(buildChapterSystemPrompt('B2')).toContain('嚴禁出現任何簡體字');
+});
+
 test('callGeminiForChapter calls Gemini endpoint and returns parsed JSON with usage', async () => {
   const fakeResult = { scene: '場景', points: ['重點一'], vocab: [], grammar: [] };
   global.fetch = jest.fn().mockResolvedValue({

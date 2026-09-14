@@ -1,5 +1,5 @@
 const {
-  clampPageCount, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
+  clampPageCount, clampVocabCap, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
   collectTextNodes, findAllMatchRanges, wrapTextRanges,
   providerLabel, pickApiKeyForProvider,
 } = require('../content.js');
@@ -40,6 +40,18 @@ describe('clampPageCount', () => {
   });
   test('passes through values already in range', () => {
     expect(clampPageCount(25)).toBe(25);
+  });
+});
+
+describe('clampVocabCap', () => {
+  test('clamps below the minimum up to 5', () => {
+    expect(clampVocabCap(0)).toBe(5);
+  });
+  test('clamps above the maximum down to 30', () => {
+    expect(clampVocabCap(100)).toBe(30);
+  });
+  test('passes through values already in range', () => {
+    expect(clampVocabCap(15)).toBe(15);
   });
 });
 
