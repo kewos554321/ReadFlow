@@ -1,7 +1,35 @@
 const {
   clampPageCount, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
   collectTextNodes, findAllMatchRanges, wrapTextRanges,
+  providerLabel, pickApiKeyForProvider,
 } = require('../content.js');
+
+describe('providerLabel', () => {
+  test('labels gemini', () => {
+    expect(providerLabel('gemini')).toBe('Gemini');
+  });
+  test('labels deepseek', () => {
+    expect(providerLabel('deepseek')).toBe('DeepSeek');
+  });
+});
+
+describe('pickApiKeyForProvider', () => {
+  test('returns the geminiApiKey when present', () => {
+    expect(pickApiKeyForProvider('gemini', { geminiApiKey: 'AIza-new', apiKey: 'AIza-legacy' })).toBe('AIza-new');
+  });
+
+  test('falls back to the legacy apiKey field for gemini when geminiApiKey is unset', () => {
+    expect(pickApiKeyForProvider('gemini', { apiKey: 'AIza-legacy' })).toBe('AIza-legacy');
+  });
+
+  test('returns the deepseekApiKey when present', () => {
+    expect(pickApiKeyForProvider('deepseek', { deepseekApiKey: 'sk-test' })).toBe('sk-test');
+  });
+
+  test('returns empty string for deepseek when unset, with no legacy fallback', () => {
+    expect(pickApiKeyForProvider('deepseek', { apiKey: 'AIza-legacy' })).toBe('');
+  });
+});
 
 describe('clampPageCount', () => {
   test('clamps below the minimum up to 1', () => {
@@ -110,6 +138,37 @@ describe('buildFragRegex', () => {
 
   test('does not match when a word in the phrase is missing from the text', () => {
     expect('ropes taut in the water'.match(buildFragRegex('ropes slack in the water'))).toBeNull();
+  });
+
+  // Gemini's own grammar prompt (background.js) allows quoting a long
+  // sentence's key part while skipping its middle with "..." — confirmed
+  // live against a real book: "Through a broad multiplicity of historical
+  // examples, they show how institutional developments... have had
+  // enormous consequences." never appears verbatim in the source (the
+  // actual sentence has "sometimes based on very accidental
+  // circumstances," in the gap) — a strict contiguous match can never
+  // find that, no matter how well node-splitting is handled, since whole
+  // words are genuinely missing from the frag, not just whitespace.
+  test('treats a literal "..." in the frag as a gap that can contain other text', () => {
+    const source = 'they show how institutional developments, sometimes based on very accidental circumstances, have had enormous consequences.';
+    const regex = buildFragRegex('institutional developments... have had enormous consequences');
+    expect(regex.test(source)).toBe(true);
+  });
+
+  test('also treats a real ellipsis character (…) as a gap', () => {
+    const source = 'the start of it and then, after a long detour, the end of it';
+    const regex = buildFragRegex('start of it … end of it');
+    expect(regex.test(source)).toBe(true);
+  });
+
+  test('an elided frag still requires each side to match literally', () => {
+    const source = 'the start of it and then the finish of it';
+    const regex = buildFragRegex('start of it ... end of it');
+    expect(regex.test(source)).toBe(false);
+  });
+
+  test('a frag with no ellipsis is unaffected (no wildcard inserted)', () => {
+    expect('ropes slack in the water'.match(buildFragRegex('ropes slack in the water'))).toEqual(['ropes slack in the water']);
   });
 
   test('escapes regex-special characters in the phrase', () => {

@@ -32,7 +32,17 @@
       cursor: pointer;
     }
     button:hover { background: #1558b0; }
-    #status { margin-top: 6px; color: #34a853; font-size: 12px; }
+    select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 12px;
+      box-sizing: border-box;
+      margin-bottom: 12px;
+    }
+    .key-group { margin-bottom: 12px; }
+    .status-msg { margin-top: 6px; color: #34a853; font-size: 12px; min-height: 14px; }
     .debug-section {
       margin-top: 14px;
       padding-top: 12px;
@@ -52,10 +62,25 @@
 </head>
 <body>
   <h2>ReadFlow</h2>
-  <label for="apiKey">Gemini API Key</label>
-  <input type="password" id="apiKey" placeholder="AIza..." />
-  <button id="save">Save</button>
-  <div id="status"></div>
+  <label for="provider">使用的模型</label>
+  <select id="provider">
+    <option value="gemini">Gemini</option>
+    <option value="deepseek">DeepSeek</option>
+  </select>
+
+  <div class="key-group">
+    <label for="apiKey-gemini">Gemini API Key</label>
+    <input type="password" id="apiKey-gemini" placeholder="AIza..." />
+    <button id="save-gemini">Save</button>
+    <div id="status-gemini" class="status-msg"></div>
+  </div>
+
+  <div class="key-group">
+    <label for="apiKey-deepseek">DeepSeek API Key</label>
+    <input type="password" id="apiKey-deepseek" placeholder="sk-..." />
+    <button id="save-deepseek">Save</button>
+    <div id="status-deepseek" class="status-msg"></div>
+  </div>
 
   <div class="debug-section">
     <div class="debug-row">

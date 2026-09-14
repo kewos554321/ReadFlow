@@ -1,6 +1,9 @@
 const {
   buildChapterRequestBody,
   callGeminiForChapter,
+  buildDeepseekRequestBody,
+  callDeepSeekForChapter,
+  callAIForChapter,
   joinPageTexts,
   buildChapterSystemPrompt,
   normalizeChapterResult,
@@ -132,6 +135,151 @@ test('callGeminiForChapter normalizes a parseable-but-malformed result instead o
     points: [],
     vocab: [{ word: 'x' }],
     grammar: [],
+  });
+});
+
+test('buildDeepseekRequestBody puts the joined page text in the user message', () => {
+  const body = buildDeepseekRequestBody(['Once upon a time.', 'The end.'], 'B2');
+  expect(body.model).toBe('deepseek-chat');
+  expect(body.messages).toEqual([
+    { role: 'system', content: expect.stringContaining('導讀') },
+    { role: 'user', content: 'Once upon a time.\n\n---\n\nThe end.' },
+  ]);
+  expect(body.response_format).toEqual({ type: 'json_object' });
+  expect(body.max_tokens).toBe(4096);
+});
+
+test('buildDeepseekRequestBody truncates very long page text', () => {
+  const longPage = 'a'.repeat(30000);
+  const body = buildDeepseekRequestBody([longPage], 'B2');
+  expect(body.messages[1].content.length).toBe(20000);
+});
+
+test('callDeepSeekForChapter calls the DeepSeek endpoint with bearer auth and returns parsed JSON with normalized usage', async () => {
+  const fakeResult = { scene: '場景', points: ['重點一'], vocab: [], grammar: [] };
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: JSON.stringify(fakeResult) }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+    })
+  });
+
+  const result = await callDeepSeekForChapter('sk-test', ['Some chapter text.'], 'B2');
+
+  expect(global.fetch).toHaveBeenCalledWith(
+    'https://api.deepseek.com/chat/completions',
+    expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ Authorization: 'Bearer sk-test' }),
+    })
+  );
+  expect(result.result).toEqual(fakeResult);
+  expect(result.usage).toEqual({ promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 });
+});
+
+test('callDeepSeekForChapter throws on API error', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: false,
+    json: async () => ({ error: { message: 'Invalid API key' } })
+  });
+
+  await expect(
+    callDeepSeekForChapter('bad-key', ['text'], 'B2')
+  ).rejects.toThrow('Invalid API key');
+});
+
+test('callDeepSeekForChapter throws a friendly error when the model returns invalid JSON', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: 'not json' }, finish_reason: 'stop' }],
+      usage: null,
+    })
+  });
+
+  await expect(
+    callDeepSeekForChapter('sk-test', ['text'], 'B2')
+  ).rejects.toThrow('無法解析導讀結果');
+});
+
+test('callDeepSeekForChapter throws a friendly error when choices is missing entirely', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ usage: null })
+  });
+
+  await expect(
+    callDeepSeekForChapter('sk-test', ['text'], 'B2')
+  ).rejects.toThrow('DeepSeek 未回傳內容');
+});
+
+test('callDeepSeekForChapter throws a distinct, actionable error when DeepSeek truncates on length', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: '{"scene":' }, finish_reason: 'length' }],
+      usage: null,
+    })
+  });
+
+  await expect(
+    callDeepSeekForChapter('sk-test', ['text'], 'B2')
+  ).rejects.toThrow('內容過長');
+});
+
+test('callDeepSeekForChapter normalizes a parseable-but-malformed result instead of crashing downstream', async () => {
+  const malformed = { scene: 123, vocab: [{ word: 'x' }], grammar: 'not-an-array' };
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: JSON.stringify(malformed) }, finish_reason: 'stop' }],
+      usage: null,
+    })
+  });
+
+  const { result } = await callDeepSeekForChapter('sk-test', ['text'], 'B2');
+  expect(result).toEqual({
+    scene: '',
+    points: [],
+    vocab: [{ word: 'x' }],
+    grammar: [],
+  });
+});
+
+describe('callAIForChapter', () => {
+  test('dispatches to Gemini when provider is "gemini"', async () => {
+    const fakeResult = { scene: 's', points: [], vocab: [], grammar: [] };
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify(fakeResult) }] } }],
+        usageMetadata: null,
+      })
+    });
+
+    await callAIForChapter('gemini', 'AIza-test', ['text'], 'B2');
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('generativelanguage.googleapis.com'),
+      expect.anything()
+    );
+  });
+
+  test('dispatches to DeepSeek when provider is "deepseek"', async () => {
+    const fakeResult = { scene: 's', points: [], vocab: [], grammar: [] };
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(fakeResult) }, finish_reason: 'stop' }],
+        usage: null,
+      })
+    });
+
+    await callAIForChapter('deepseek', 'sk-test', ['text'], 'B2');
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.deepseek.com/chat/completions',
+      expect.anything()
+    );
   });
 });
 

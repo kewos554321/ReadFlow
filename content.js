@@ -49,6 +49,18 @@ function maskApiKey(key) {
   return key.slice(0, 4) + '····' + key.slice(-4);
 }
 
+function providerLabel(provider) {
+  return provider === 'deepseek' ? 'DeepSeek' : 'Gemini';
+}
+
+// Gemini used a single unnamed `apiKey` field before providers existed —
+// fall back to it so upgrading users don't lose an already-saved key.
+function pickApiKeyForProvider(provider, keys) {
+  const stored = provider === 'deepseek' ? keys.deepseekApiKey : keys.geminiApiKey;
+  if (stored) return stored;
+  return provider === 'gemini' ? (keys.apiKey || '') : '';
+}
+
 // ── Top frame: persistent Chapter Guide drawer ──────────────────────
 // One collapsible drawer — an always-visible edge tab plus a sliding
 // body — replaces what used to be a floating icon, a separate small
@@ -107,6 +119,7 @@ let lastResult = null;               // { scene, points, vocab, grammar }
 let lastMeta = null;                 // { pageCount, level, reachedEnd, usage, debug }
 let resultTab = 'outline';           // 'outline' | 'vocab' | 'grammar'
 let currentView = 'start';           // 'start' | 'loading' | 'result' | 'error'
+let panelProvider = 'gemini';        // 'gemini' | 'deepseek'
 let currentApiKey = '';
 let apiKeyEditOpen = false;
 
@@ -143,8 +156,9 @@ function initDrawer() {
 
   applyPanelWidth(panelWidth);
 
-  chrome.storage.local.get(['apiKey'], ({ apiKey }) => {
-    currentApiKey = apiKey || '';
+  chrome.storage.local.get(['provider', 'geminiApiKey', 'deepseekApiKey', 'apiKey'], (stored) => {
+    panelProvider = stored.provider || 'gemini';
+    currentApiKey = pickApiKeyForProvider(panelProvider, stored);
     renderDrawerStart();
   });
 }
@@ -230,6 +244,7 @@ function renderSettingsFields(source, scope) {
   const apiKeyDisplay = currentApiKey
     ? `<span class="readflow-apikey-value">${escapeHtml(maskApiKey(currentApiKey))}</span><span class="readflow-apikey-tag verified">已驗證</span>`
     : `<span class="readflow-apikey-tag missing">尚未設定</span>`;
+  const apiKeyPlaceholder = panelProvider === 'deepseek' ? 'sk-...' : 'AIza...';
 
   return `
     <div class="readflow-settings">
@@ -251,13 +266,20 @@ function renderSettingsFields(source, scope) {
         </label>
       </div>
       <div class="readflow-settings-group">
-        <div class="readflow-settings-label">Gemini API Key</div>
+        <div class="readflow-settings-label">使用的模型</div>
+        <select class="readflow-provider-select" data-action="pick-provider">
+          <option value="gemini"${panelProvider === 'gemini' ? ' selected' : ''}>Gemini</option>
+          <option value="deepseek"${panelProvider === 'deepseek' ? ' selected' : ''}>DeepSeek</option>
+        </select>
+      </div>
+      <div class="readflow-settings-group">
+        <div class="readflow-settings-label">${providerLabel(panelProvider)} API Key</div>
         <div class="readflow-apikey-row">
           ${apiKeyDisplay}
           <span class="readflow-spacer"></span>
           <button class="readflow-link-btn" data-action="apikey-edit-toggle">更改</button>
           <div class="readflow-apikey-edit${apiKeyEditOpen ? ' open' : ''}">
-            <input type="password" id="readflow-apikey-input" placeholder="AIza...">
+            <input type="password" id="readflow-apikey-input" placeholder="${apiKeyPlaceholder}">
             <button class="readflow-btn readflow-btn-secondary" data-action="apikey-save">儲存</button>
           </div>
         </div>
@@ -529,7 +551,7 @@ function onDrawerClick(e) {
     const input = drawerBody.querySelector('#readflow-apikey-input');
     const value = input ? input.value.trim() : '';
     if (!value) return;
-    chrome.storage.local.set({ apiKey: value }, () => {
+    chrome.storage.local.set({ [`${panelProvider}ApiKey`]: value }, () => {
       currentApiKey = value;
       apiKeyEditOpen = false;
       rerenderCurrentView();
@@ -539,6 +561,18 @@ function onDrawerClick(e) {
 }
 
 function onDrawerChange(e) {
+  const providerEl = e.target.closest('[data-action="pick-provider"]');
+  if (providerEl) {
+    panelProvider = providerEl.value;
+    apiKeyEditOpen = false;
+    chrome.storage.local.set({ provider: panelProvider });
+    chrome.storage.local.get(['geminiApiKey', 'deepseekApiKey', 'apiKey'], (stored) => {
+      currentApiKey = pickApiKeyForProvider(panelProvider, stored);
+      rerenderCurrentView();
+    });
+    return;
+  }
+
   const el = e.target.closest('[data-action="toggle-current-page"]');
   if (!el) return;
   const scope = el.dataset.scope;
@@ -725,15 +759,16 @@ function updateLoadingProgress(current, total) {
 
 function onCaptureFinished(pages, reachedEnd) {
   clearTimeout(captureTimeoutId);
-  chrome.storage.local.get(['apiKey'], ({ apiKey }) => {
+  chrome.storage.local.get(['geminiApiKey', 'deepseekApiKey', 'apiKey'], (stored) => {
+    const apiKey = pickApiKeyForProvider(panelProvider, stored);
     if (!apiKey) {
-      renderDrawerError('尚未設定 Gemini API Key，請在上方「設定」中新增。');
+      renderDrawerError(`尚未設定 ${providerLabel(panelProvider)} API Key，請在上方「設定」中新增。`);
       setDrawerOpen(true);
       return;
     }
 
     chrome.runtime.sendMessage(
-      { type: 'analyzeChapter', pages, apiKey, level: panelLevel },
+      { type: 'analyzeChapter', pages, apiKey, provider: panelProvider, level: panelLevel },
       (response) => {
         if (chrome.runtime.lastError || response?.error) {
           const msg = response?.error || chrome.runtime.lastError?.message;
@@ -842,14 +877,22 @@ function buildWordRegex(word) {
 // A grammar `frag` is a multi-word phrase Gemini quotes from the original
 // text, not a single dictionary word — matching it needs to tolerate the
 // page reflowing that phrase across a line wrap (different whitespace
-// between the same words), but the words themselves still have to match
-// literally: this isn't a fuzzy/paraphrase match. Whole match (all tokens
-// joined by \s+) sits in one capturing group for the same split()-preserves-
-// the-match reason as buildWordRegex above.
+// between the same words). It also needs to tolerate something more than
+// whitespace: for a long sentence, Gemini's own prompt lets it quote just
+// the relevant part and skip the middle with "..." (confirmed live against
+// a real book — a frag like "...institutional developments... have had
+// enormous consequences." elides "sometimes based on very accidental
+// circumstances," from the actual sentence). Each side of a "..."/"…" is
+// still matched literally in order; only the gap between sides is a
+// wildcard — this isn't a fuzzy/paraphrase match, just an elision-aware one.
 function buildFragRegex(frag) {
   const normalized = frag.trim().replace(/\s+/g, ' ');
-  const tokens = normalized.split(' ').map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  return new RegExp('\\b(' + tokens.join('\\s+') + ')\\b', 'gi');
+  const segments = normalized.split(/\s*(?:\.{3,}|…)\s*/).filter((seg) => seg.length > 0);
+  const segmentPatterns = segments.map((seg) => {
+    const tokens = seg.split(' ').map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return tokens.join('\\s+');
+  });
+  return new RegExp('\\b' + segmentPatterns.join('[\\s\\S]*?') + '\\b', 'gi');
 }
 
 // The lookup key for a frag, shared between the 畫記 button's active-state
@@ -1065,5 +1108,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     clampPageCount, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
     collectTextNodes, findAllMatchRanges, wrapTextRanges,
+    providerLabel, pickApiKeyForProvider,
   };
 }

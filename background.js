@@ -1,4 +1,5 @@
 const GEMINI_MODEL = 'gemini-3.6-flash';
+const DEEPSEEK_MODEL = 'deepseek-chat';
 
 const LEVEL_LABELS = {
   B1: 'B1（基礎）',
@@ -144,11 +145,75 @@ async function callGeminiForChapter(apiKey, pages, level) {
   };
 }
 
+function buildDeepseekRequestBody(pages, level) {
+  const joined = joinPageTexts(pages).slice(0, CHAPTER_TEXT_CHAR_CAP);
+  return {
+    model: DEEPSEEK_MODEL,
+    messages: [
+      { role: 'system', content: buildChapterSystemPrompt(level) },
+      { role: 'user', content: joined },
+    ],
+    response_format: { type: 'json_object' },
+    max_tokens: 4096,
+  };
+}
+
+async function callDeepSeekForChapter(apiKey, pages, level) {
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(buildDeepseekRequestBody(pages, level)),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || 'API request failed');
+  }
+
+  const choice = data.choices?.[0];
+  if (choice?.finish_reason === 'length') {
+    throw new Error('內容過長，請減少擷取頁數後再試');
+  }
+
+  const rawText = choice?.message?.content;
+  if (!rawText) {
+    throw new Error('DeepSeek 未回傳內容，請稍後再試');
+  }
+
+  let result;
+  try {
+    result = JSON.parse(rawText);
+  } catch (e) {
+    throw new Error('無法解析導讀結果，請重新分析');
+  }
+
+  const usage = data.usage
+    ? {
+        promptTokenCount: data.usage.prompt_tokens,
+        candidatesTokenCount: data.usage.completion_tokens,
+        totalTokenCount: data.usage.total_tokens,
+      }
+    : null;
+
+  return {
+    result: normalizeChapterResult(result),
+    usage,
+  };
+}
+
+function callAIForChapter(provider, apiKey, pages, level) {
+  if (provider === 'deepseek') return callDeepSeekForChapter(apiKey, pages, level);
+  return callGeminiForChapter(apiKey, pages, level);
+}
+
 if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== 'analyzeChapter') return false;
-    const { pages, apiKey, level } = message;
-    callGeminiForChapter(apiKey, pages, level)
+    const { pages, apiKey, provider, level } = message;
+    callAIForChapter(provider, apiKey, pages, level)
       .then(({ result, usage }) => sendResponse({ result, usage }))
       .catch((err) => sendResponse({ error: err.message }));
     return true;
@@ -160,6 +225,9 @@ if (typeof module !== 'undefined') {
     joinPageTexts,
     buildChapterRequestBody,
     callGeminiForChapter,
+    buildDeepseekRequestBody,
+    callDeepSeekForChapter,
+    callAIForChapter,
     buildChapterSystemPrompt,
     normalizeChapterResult,
     CHAPTER_RESPONSE_SCHEMA,

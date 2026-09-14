@@ -7,7 +7,8 @@
   "host_permissions": [
     "https://play.google.com/*",
     "https://books.googleusercontent.com/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.deepseek.com/*"
   ],
   "background": {
     "service_worker": "background.js"
