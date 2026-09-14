@@ -102,6 +102,7 @@ let panelCurrentPageOnly = false;
 let settingsOverlayOpen = false;     // gear-icon overlay, result state only
 let settingsDraft = null;            // { level, pageCount, currentPageOnly } while the overlay is open
 let markedWords = new Set();         // words this frame has asked to highlight, for 畫記 button state
+let markedGrammar = new Set();       // normalized frags this frame has asked to underline, for 畫記 button state
 let lastResult = null;               // { scene, points, vocab, grammar }
 let lastMeta = null;                 // { pageCount, level, reachedEnd, usage, debug }
 let resultTab = 'outline';           // 'outline' | 'vocab' | 'grammar'
@@ -367,7 +368,9 @@ function renderTabBody(result, tab) {
     return `<div class="readflow-vocab-list">${cards}</div>`;
   }
 
-  const cards = result.grammar.map((g) => `
+  const cards = result.grammar.map((g) => {
+    const marked = markedGrammar.has(normalizeFragKey(g.frag));
+    return `
     <div class="readflow-grammar-card">
       <code class="readflow-grammar-frag">${escapeHtml(g.frag)}</code>
       <p class="readflow-grammar-note">${escapeHtml(g.note)}</p>
@@ -375,8 +378,13 @@ function renderTabBody(result, tab) {
         <span class="readflow-grammar-rewrite-label">改寫</span>
         <p>${escapeHtml(g.rewrite)}</p>
       </div>
+      <div class="readflow-grammar-actions">
+        <span class="readflow-spacer"></span>
+        <button class="readflow-mark-btn${marked ? ' active' : ''}" data-action="toggle-grammar-mark" data-frag="${escapeHtml(g.frag)}" title="在內文中標示這段（底線）">${svgIcon('mark', 14)}畫記</button>
+      </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   return `<div class="readflow-grammar-list">${cards}</div>`;
 }
 
@@ -513,6 +521,7 @@ function onDrawerClick(e) {
   if (action === 'pick-tab') { resultTab = el.dataset.tab; renderDrawerResult(); return; }
   if (action === 'speak') { speakWord(el.dataset.word); return; }
   if (action === 'toggle-mark') { toggleMark(el.dataset.word); return; }
+  if (action === 'toggle-grammar-mark') { toggleGrammarMark(el.dataset.frag); return; }
   if (action === 'font-dec') { applyBodyFontSize(bodyFontSize - 1); return; }
   if (action === 'font-inc') { applyBodyFontSize(bodyFontSize + 1); return; }
   if (action === 'apikey-edit-toggle') { apiKeyEditOpen = !apiKeyEditOpen; rerenderCurrentView(); return; }
@@ -557,6 +566,45 @@ function toggleMark(word) {
   else markedWords.add(key);
   broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word });
   renderDrawerResult();
+}
+
+// Same reuse pattern as toggleMark, but underlines a grammar frag (a full
+// quoted phrase) in the book text instead of highlighting a single word —
+// distinct visual treatment (underline vs. background) because a full
+// clause under a solid highlight reads as much heavier than a single word.
+function toggleGrammarMark(frag) {
+  const key = normalizeFragKey(frag);
+  if (markedGrammar.has(key)) markedGrammar.delete(key);
+  else markedGrammar.add(key);
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleGrammarMarkRequest', frag });
+  renderDrawerResult();
+}
+
+// One-directional versions of toggleMark/toggleGrammarMark — "ensure
+// marked" rather than "flip", so calling this for every vocab/grammar item
+// on every completed analysis (autoMarkResult below) never un-marks
+// something the user already turned on by hand.
+function markWordOn(word) {
+  const key = word.toLowerCase();
+  if (markedWords.has(key)) return;
+  markedWords.add(key);
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word });
+}
+
+function markGrammarOn(frag) {
+  const key = normalizeFragKey(frag);
+  if (markedGrammar.has(key)) return;
+  markedGrammar.add(key);
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleGrammarMarkRequest', frag });
+}
+
+// Proactively marks every vocab word and grammar frag from a finished
+// analysis, so the user doesn't have to click 畫記 on each card by hand —
+// called right after lastResult is set, before the first render of the
+// result view, so the 畫記 buttons already render active.
+function autoMarkResult(result) {
+  result.vocab.forEach((v) => markWordOn(v.word));
+  result.grammar.forEach((g) => markGrammarOn(g.frag));
 }
 
 // ── Capture flow ───────────────────────────────────────────────────
@@ -651,6 +699,7 @@ function onDebugCaptureFinished(pages, reachedEnd) {
     debug: true,
   };
   resultTab = 'outline';
+  autoMarkResult(lastResult);
   renderDrawerResult();
   setDrawerOpen(true);
 }
@@ -702,6 +751,7 @@ function onCaptureFinished(pages, reachedEnd) {
             debug: false,
           };
           resultTab = 'outline';
+          autoMarkResult(lastResult);
           renderDrawerResult();
           setDrawerOpen(true);
         } catch (e) {
@@ -727,6 +777,7 @@ window.addEventListener('message', (event) => {
   if (data.type === 'chapterCaptureProgress') updateLoadingProgress(data.current, data.total);
   if (data.type === 'chapterCaptureResult') onCaptureFinished(data.pages, data.reachedEnd);
   if (data.type === 'toggleHighlightRequest') applyHighlightToggle(data.word);
+  if (data.type === 'toggleGrammarMarkRequest') applyGrammarMarkToggle(data.frag);
   if (data.type === 'extractPageTextRequest') {
     event.source.postMessage({
       source: 'readflow',
@@ -775,10 +826,106 @@ async function runChapterCapture(pageCount) {
   }, '*');
 }
 
+// Gemini gives vocab words in their dictionary/base form ("boat"), but the
+// book text itself often contains an inflected form ("boats", "walked",
+// "walking") — a strict \bword\b match can't find those (no word boundary
+// exists between "t" and "s" in "boats"), so 畫記 silently highlights
+// nothing even in the right frame. The optional suffix group is folded
+// INTO the single capturing group (not left outside it) so
+// `textNode.textContent.split(regex)` — which keeps only captured text —
+// preserves the suffix in the split output instead of dropping it.
+function buildWordRegex(word) {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('\\b(' + escaped + '(?:es|s|ed|d|ing)?)\\b', 'gi');
+}
+
+// A grammar `frag` is a multi-word phrase Gemini quotes from the original
+// text, not a single dictionary word — matching it needs to tolerate the
+// page reflowing that phrase across a line wrap (different whitespace
+// between the same words), but the words themselves still have to match
+// literally: this isn't a fuzzy/paraphrase match. Whole match (all tokens
+// joined by \s+) sits in one capturing group for the same split()-preserves-
+// the-match reason as buildWordRegex above.
+function buildFragRegex(frag) {
+  const normalized = frag.trim().replace(/\s+/g, ' ');
+  const tokens = normalized.split(' ').map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp('\\b(' + tokens.join('\\s+') + ')\\b', 'gi');
+}
+
+// The lookup key for a frag, shared between the 畫記 button's active-state
+// check (renderTabBody), toggleGrammarMark (top frame), and
+// applyGrammarMarkToggle (reader frame) — must stay identical everywhere,
+// or a frag marked in one place won't be recognized as marked in another.
+function normalizeFragKey(frag) {
+  return frag.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// ── Cross-node text search & wrap ─────────────────────────────────
+// Play Books (and paginated readers generally) commonly render each word or
+// line in its own element for layout control, splitting one visual run of
+// text into many DOM text nodes. A single vocab word usually still fits
+// inside one such node, but a multi-word grammar frag almost never does —
+// searching/splitting node-by-node (the old approach) simply never finds a
+// match that crosses a node boundary. These three functions instead search
+// the whole page's text as one concatenated string, then map a match's
+// [start, end) offset back onto however many nodes it actually spans.
+
+function collectTextNodes(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let node;
+  while ((node = walker.nextNode())) nodes.push(node);
+  return nodes;
+}
+
+function findAllMatchRanges(regex, text) {
+  const ranges = [];
+  let m;
+  while ((m = regex.exec(text))) {
+    ranges.push({ start: m.index, end: m.index + m[0].length });
+    if (m[0].length === 0) regex.lastIndex++; // guard against a zero-length match looping forever
+  }
+  return ranges;
+}
+
+// Wraps each given [start, end) range of the concatenated text of `nodes`
+// (in document order) with an element built by `makeWrapper(matchedText)`.
+// Every range that touches a given node is applied in a single
+// `replaceWith` per node — never one `replaceWith` per range — so two
+// ranges landing in the same original node (e.g. a word appearing twice in
+// one paragraph) don't fight over a node the first call already detached.
+function wrapTextRanges(nodes, ranges, makeWrapper) {
+  if (ranges.length === 0) return;
+  let offset = 0;
+  for (const node of nodes) {
+    const nodeStart = offset;
+    const text = node.textContent;
+    const nodeEnd = nodeStart + text.length;
+    offset = nodeEnd;
+
+    const overlapping = ranges
+      .filter((r) => r.end > nodeStart && r.start < nodeEnd)
+      .sort((a, b) => a.start - b.start);
+    if (overlapping.length === 0) continue;
+
+    const domFrag = document.createDocumentFragment();
+    let cursor = 0; // position within this node's own text, not the whole page
+    overlapping.forEach((r) => {
+      const localStart = Math.max(0, r.start - nodeStart);
+      const localEnd = Math.min(text.length, r.end - nodeStart);
+      if (localStart > cursor) domFrag.appendChild(document.createTextNode(text.slice(cursor, localStart)));
+      domFrag.appendChild(makeWrapper(text.slice(localStart, localEnd)));
+      cursor = localEnd;
+    });
+    if (cursor < text.length) domFrag.appendChild(document.createTextNode(text.slice(cursor)));
+    node.replaceWith(domFrag);
+  }
+}
+
 // Marks (or unmarks) every visible occurrence of `word` in this frame's
 // body with a <mark>. Runs in every frame reached by
 // broadcastToDescendantFrames; only the frame that actually has the
-// word in its text will find anything to do.
+// word (in its base or inflected form) in its text will find anything to do.
 const highlightedWords = new Set();
 
 function applyHighlightToggle(word) {
@@ -791,34 +938,51 @@ function applyHighlightToggle(word) {
     return;
   }
 
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp('\\b(' + escaped + ')\\b', 'gi');
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const matches = [];
-  let node;
-  while ((node = walker.nextNode())) {
-    if (regex.test(node.textContent)) matches.push(node);
-    regex.lastIndex = 0;
-  }
-  if (matches.length === 0) return; // not the right frame
+  const nodes = collectTextNodes(document.body);
+  const fullText = nodes.map((n) => n.textContent).join('');
+  const ranges = findAllMatchRanges(buildWordRegex(word), fullText);
+  if (ranges.length === 0) return; // not the right frame
 
-  matches.forEach((textNode) => {
-    const parts = textNode.textContent.split(regex);
-    const frag = document.createDocumentFragment();
-    for (let i = 0; i < parts.length; i++) {
-      if (i % 2 === 1) {
-        const mark = document.createElement('mark');
-        mark.className = 'readflow-highlight';
-        mark.dataset.word = key;
-        mark.textContent = parts[i];
-        frag.appendChild(mark);
-      } else if (parts[i]) {
-        frag.appendChild(document.createTextNode(parts[i]));
-      }
-    }
-    textNode.replaceWith(frag);
+  wrapTextRanges(nodes, ranges, (text) => {
+    const mark = document.createElement('mark');
+    mark.className = 'readflow-highlight';
+    mark.dataset.word = key;
+    mark.textContent = text;
+    return mark;
   });
   highlightedWords.add(key);
+}
+
+// Same shape as applyHighlightToggle, but underlines a grammar frag (a
+// multi-word phrase, matched via buildFragRegex) instead of highlighting a
+// single vocab word. Wrapped in <u>, not <mark> — a solid background over a
+// whole clause reads as much heavier than over one word, so grammar marks
+// get the lighter underline treatment instead (see styles.css).
+const grammarMarkedFrags = new Set();
+
+function applyGrammarMarkToggle(frag) {
+  const key = normalizeFragKey(frag);
+  if (grammarMarkedFrags.has(key)) {
+    document.querySelectorAll('u.readflow-grammar-mark[data-frag-key="' + CSS.escape(key) + '"]').forEach((u) => {
+      u.replaceWith(document.createTextNode(u.textContent));
+    });
+    grammarMarkedFrags.delete(key);
+    return;
+  }
+
+  const nodes = collectTextNodes(document.body);
+  const fullText = nodes.map((n) => n.textContent).join('');
+  const ranges = findAllMatchRanges(buildFragRegex(frag), fullText);
+  if (ranges.length === 0) return; // not the right frame, or the frag doesn't appear literally
+
+  wrapTextRanges(nodes, ranges, (text) => {
+    const u = document.createElement('u');
+    u.className = 'readflow-grammar-mark';
+    u.dataset.fragKey = key;
+    u.textContent = text;
+    return u;
+  });
+  grammarMarkedFrags.add(key);
 }
 
 // The frame with the page-turn controls is a shell around a further
@@ -898,5 +1062,8 @@ function wait(ms) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { clampPageCount, computeTabCounts, maskApiKey, escapeHtml };
+  module.exports = {
+    clampPageCount, computeTabCounts, maskApiKey, escapeHtml, buildWordRegex, buildFragRegex,
+    collectTextNodes, findAllMatchRanges, wrapTextRanges,
+  };
 }

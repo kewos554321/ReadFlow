@@ -301,6 +301,7 @@
   color: var(--rf-accent2-700);
 }
 .readflow-grammar-rewrite-row p { margin: 0; font-size: 0.93em; line-height: 1.55; color: var(--rf-neutral-700); }
+.readflow-grammar-actions { display: flex; align-items: center; }
 
 /* — settings overlay (gear icon, result state only) — */
 .readflow-settings-overlay {
@@ -333,3 +334,14 @@
 
 /* — highlight mark left in the book's own page content (unrelated to the panel's tokens) — */
 mark.readflow-highlight { background: #ffe066; color: inherit; }
+
+/* Grammar frags get an underline instead of a background — a whole clause
+   under a solid highlight reads much heavier than a single highlighted
+   word. Fixed color (not a --rf-* token), same reasoning as the highlight
+   mark above: this renders inside the book's own page content, not the
+   panel chrome, so it needs to read against whatever Play Books itself is
+   rendering, not this stylesheet's ground. */
+u.readflow-grammar-mark {
+  text-decoration: underline; text-decoration-color: #7a8a5e; text-decoration-thickness: 2px;
+  text-underline-offset: 3px; color: inherit;
+}
