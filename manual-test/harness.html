@@ -82,23 +82,34 @@
   // ReadFlow analyzes English books for a Chinese-speaking reader (see
   // background.js's CHAPTER_SYSTEM_PROMPT): captured pages are English
   // text, and the analysis explains English vocab/grammar in Chinese —
-  // this canned result follows that same shape.
-  var FAKE_RESULT_TEMPLATE = '**📖 章節大綱 (Outline)**\n' +
-    '主角在雨夜舊書店中，意外發現一本封面斑駁的筆記本，裡頭夾著一封從未寄出的信，字跡因潮濕而暈染，讀來帶著一絲惆悵；隨著她繼續翻閱，某段文字忽然變得工整，像是另一人接手寫下，暗示還有未解的伏筆等著揭曉。\n\n' +
-    '**📚 困難生字 (Difficult Vocabulary)**\n' +
-    '* **mottled**（adj. 形容詞）：表面帶有斑駁色塊、不均勻，原文用來形容筆記本封面因年代久遠產生的痕跡（"its cover worn and mottled with age"），可理解為「舊舊髒髒、顏色不均」。\n' +
-    '* **wistful**（adj. 形容詞）：帶著淡淡感傷與懷念、若有所失的心情，原文 "left her with a lingering, wistful sadness" 描述她讀完信後的感受，語氣比 sad 更含蓄。\n' +
-    '* **deliberate**（adj. 形容詞）：這裡指刻意、工整、經過用心書寫，不是「延遲」的意思；原文 "grew neat and deliberate" 形容字跡忽然變得端正、像是特意寫成的。\n\n' +
-    '**📝 困難文法 (Difficult Grammar)**\n' +
-    '* `as if someone else had taken over the writing`：`as if` 後面接過去完成式（had + p.p.），用來描述「其實未必是事實、只是看起來像」的假設情境，這種語氣在描述懷疑或推測時很常見。\n\n' +
-    '**🧪 測試除錯：實際擷取到的原始內容**\n' +
-    '{{DEBUG_PAGES}}';
+  // this canned result follows the structured {scene, points, vocab,
+  // grammar} shape background.js now returns.
+  var FAKE_VOCAB = [
+    { word: 'mottled', pos: 'adj.', zh: '表面帶有斑駁色塊、不均勻，這裡形容筆記本封面因年代久遠產生的痕跡。', quote: '原文："its cover worn and mottled with age"' },
+    { word: 'wistful', pos: 'adj.', zh: '帶著淡淡感傷與懷念、若有所失的心情，語氣比 sad 更含蓄。', quote: '原文："left her with a lingering, wistful sadness"' },
+    { word: 'deliberate', pos: 'adj.', zh: '這裡指刻意、工整、經過用心書寫，不是「延遲」的意思。', quote: '原文："grew neat and deliberate"' },
+  ];
+  var FAKE_GRAMMAR = [
+    { frag: 'as if someone else had taken over the writing', note: '`as if` 後面接過去完成式（had + p.p.），描述「看起來像、但未必是事實」的假設情境。', rewrite: 'it looked like someone else had written it' },
+  ];
 
   window.chrome = {
     storage: {
       local: {
         get: function (keys, cb) {
-          cb(window.__harness.apiKeyPresent ? { apiKey: 'harness-fake-key' } : {});
+          cb(window.__harness.apiKeyPresent ? { apiKey: window.__harness.apiKeyValue || 'harness-fake-key' } : {});
+        },
+        // Backs the redesign's in-panel "儲存" button (儲存 → chrome.storage.local.set).
+        // Stores onto window.__harness — mirroring how apiKeyPresent already
+        // drives get() — so a subsequent get() reflects what was just saved.
+        set: function (obj, cb) {
+          setTimeout(function () {
+            if (obj && typeof obj.apiKey !== 'undefined') {
+              window.__harness.apiKeyValue = obj.apiKey;
+              window.__harness.apiKeyPresent = true;
+            }
+            if (cb) cb();
+          }, 0);
         }
       }
     },
@@ -113,12 +124,16 @@
             cb({ error: '(模擬) 無法連線至 Gemini，請稍後再試' });
             return;
           }
-          var debugLines = msg.pages.map(function (p, i) {
-            return '* 第 ' + (i + 1) + ' 頁：`' + p.slice(0, 24) + (p.length > 24 ? '…' : '') + '`';
-          }).join('\n');
-          var result = FAKE_RESULT_TEMPLATE.replace('{{DEBUG_PAGES}}', debugLines || '（沒有擷取到任何內容）');
           cb({
-            result: result,
+            result: {
+              scene: '主角在雨夜舊書店中，意外發現一本封面斑駁的筆記本，裡頭夾著一封從未寄出的信，字跡因潮濕而暈染，讀來帶著一絲惆悵。',
+              points: [
+                '隨著她繼續翻閱，某段文字忽然變得工整，像是另一人接手寫下，暗示還有未解的伏筆等著揭曉。',
+                '（測試面板）本次共擷取 ' + msg.pages.length + ' 頁內容，程度：' + (msg.level || '未指定') + '。'
+              ],
+              vocab: FAKE_VOCAB,
+              grammar: FAKE_GRAMMAR
+            },
             usage: {
               promptTokenCount: 800 + msg.pages.length * 42,
               candidatesTokenCount: 356,

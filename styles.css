@@ -1,205 +1,335 @@
-/* ReadFlow styles */
+/* ReadFlow — Organic redesign (design 1a, 暖色卡片側欄) */
 
-/* Always-visible edge handle: doubles as the open/close toggle, so
-   there's exactly one control for "bring the drawer back" instead of
-   a separate floating icon plus a separate small popup. */
+@import url('https://fonts.googleapis.com/css2?family=Caprasimo:wght@400&family=Figtree:wght@400;600;700&display=swap');
+
+:root {
+  --rf-bg: #f5ead8;
+  --rf-surface: #ebddc5;
+  --rf-text: #201e1d;
+  --rf-accent: #c67139;
+  --rf-accent-2: #7a8a5e;
+  --rf-divider: color-mix(in srgb, #201e1d 16%, transparent);
+
+  --rf-neutral-100: #f9f4ed;
+  --rf-neutral-200: #eee7db;
+  --rf-neutral-300: #dcd3c4;
+  --rf-neutral-600: #82796a;
+  --rf-neutral-700: #645c50;
+
+  --rf-accent-100: #fff2eb;
+  --rf-accent-200: #ffe1d0;
+  --rf-accent-300: #ffc6a5;
+  --rf-accent-600: #b2622d;
+  --rf-accent-700: #8c491a;
+  --rf-accent-800: #643312;
+
+  --rf-accent2-100: #f0fae1;
+  --rf-accent2-200: #e1eecc;
+  --rf-accent2-600: #728157;
+  --rf-accent2-700: #56633f;
+
+  --rf-font-heading: "Caprasimo", system-ui, sans-serif;
+  --rf-font-body: "Figtree", system-ui, sans-serif;
+
+  --rf-space-1: 4.4px;
+  --rf-space-2: 8.8px;
+  --rf-space-3: 13.2px;
+  --rf-space-4: 17.6px;
+  --rf-space-6: 26.4px;
+
+  --rf-radius-sm: 8px;
+  --rf-radius-md: 16px;
+  --rf-radius-lg: 28px;
+
+  --rf-shadow-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
+  --rf-shadow-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
+  --rf-shadow-lg: 0 12px 32px color-mix(in srgb, #2e2b25 22%, transparent);
+}
+
+/* — edge tab — */
 .readflow-drawer-tab {
   position: fixed;
   top: 50%;
   right: 0;
   transform: translateY(-50%);
-  /* Below the panel (not above it): the tab tucks its overlapping edge
-     UNDER the panel instead of trying to land its own edge pixel-for-
-     pixel on top of the panel's. The panel is opaque, so as long as the
-     overlap (content.js TAB_OVERLAP_PX) is generous, the panel's own
-     edge is the only boundary the user ever sees — no more chasing
-     subpixel/zoom/DPR mismatches between two independently-positioned
-     elements' edges. */
   z-index: 2147483645;
-  background: #1a73e8;
-  color: white;
+  background: var(--rf-accent);
+  color: var(--rf-bg);
   writing-mode: vertical-rl;
   text-orientation: mixed;
-  padding: 16px 8px;
-  border-radius: 14px 0 0 14px;
+  min-width: 40px;
+  padding: 18px 10px;
+  border-radius: 999px 0 0 999px;
   cursor: pointer;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 1.5px;
-  box-shadow: -2px 2px 10px rgba(0, 0, 0, 0.35);
+  font-family: var(--rf-font-heading);
+  font-size: 14px;
+  letter-spacing: 2px;
+  box-shadow: -2px 2px 10px color-mix(in srgb, #2e2b25 30%, transparent);
   user-select: none;
   transition: right 0.25s ease, background 0.15s, box-shadow 0.15s;
 }
+.readflow-drawer-tab:hover { background: var(--rf-accent-600); }
+.readflow-drawer-tab.open { box-shadow: none; }
+.readflow-drawer-tab.resizing { transition: none; }
+.readflow-drawer-tab:focus-visible { outline: 2px solid var(--rf-accent-800); outline-offset: 2px; }
 
-.readflow-drawer-tab:hover {
-  box-shadow: -2px 2px 14px rgba(0, 0, 0, 0.45);
-}
-
-/* When the panel is open, sit at its left edge, tucked under the panel
-   (see the z-index note above). The `right` offset itself is set in JS
-   (content.js applyPanelWidth/setDrawerOpen) since the panel is now
-   user-resizable, so a fixed value here would drift out of sync as soon
-   as someone drags the handle. The shadow is dropped here too — a
-   shadow reads as "floating above/separate from" whatever's behind it,
-   which fights the attached, flush look this state is going for. */
-.readflow-drawer-tab.open {
-  box-shadow: none;
-}
-
-/* Suppress the `right` transition while a panel resize drag is in
-   progress (see content.js onResizeHandlePointerDown) — otherwise the
-   tab visibly lags a quarter-second behind the pointer instead of
-   tracking the panel edge 1:1. */
-.readflow-drawer-tab.resizing {
-  transition: none;
-}
-
-.readflow-drawer-tab:hover { background: #1558b0; }
-
+/* — panel shell — */
 .readflow-panel {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 360px; /* default before JS applies the stored/resized width */
-  box-sizing: border-box; /* padding must count toward the width, or the
-    drawer tab's open offset (set in JS, content.js applyPanelWidth)
-    undershoots the panel's real left edge and the tab floats away
-    from it. */
+  top: 0; right: 0; bottom: 0;
+  width: 360px;
+  box-sizing: border-box;
   z-index: 2147483646;
-  background: #1e1e2e;
-  color: #cdd6f4;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
-  padding: 20px 16px;
-  overflow-y: auto;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
-  line-height: 1.7;
+  background: var(--rf-bg);
+  color: var(--rf-text);
+  box-shadow: -8px 0 28px color-mix(in srgb, #2e2b25 18%, transparent);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--rf-font-body);
+  font-size: 14.5px;
+  line-height: 1.6;
   transform: translateX(100%);
   transition: transform 0.25s ease;
+  overflow: hidden;
 }
-
 .readflow-panel.open { transform: translateX(0); }
+.readflow-panel * { box-sizing: border-box; }
 
-/* Drag handle for resizing the panel width. Kept as a sibling of the
-   panel (not a child) so it survives the panel's innerHTML swaps
-   between the input/loading/result states; its `right` offset is kept
-   in sync with the panel's width from JS (content.js applyPanelWidth). */
 .readflow-panel-resize-handle {
   position: fixed;
-  top: 0;
-  bottom: 0;
+  top: 0; bottom: 0;
   width: 6px;
   cursor: ew-resize;
-  touch-action: none; /* let pointer events drive dragging instead of scroll gestures */
-  /* Above the panel so it can still receive the drag — the tab is now
-     tucked BELOW the panel (see .readflow-drawer-tab), so the handle no
-     longer needs to out-rank the tab, only the panel underneath it. */
+  touch-action: none;
   z-index: 2147483647;
   display: none;
 }
-
 .readflow-panel-resize-handle.open { display: block; }
-
 .readflow-panel-resize-handle:hover,
-.readflow-panel-resize-handle.dragging {
-  background: rgba(137, 180, 250, 0.4);
+.readflow-panel-resize-handle.dragging { background: color-mix(in srgb, var(--rf-accent) 35%, transparent); }
+
+/* — header (start / loading / result / error all use this) — */
+.readflow-header {
+  padding: var(--rf-space-4) var(--rf-space-4) var(--rf-space-3);
+  display: flex; flex-direction: column; gap: var(--rf-space-3);
+  border-bottom: 1px solid var(--rf-divider);
+  flex: none;
+}
+.readflow-header-row { display: flex; align-items: center; gap: var(--rf-space-2); }
+.readflow-header-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 999px;
+  background: var(--rf-accent-200); color: var(--rf-accent-700); flex: none;
+}
+.readflow-header-title { flex: 1; min-width: 0; }
+.readflow-header-title h2 {
+  font: 400 20px/1.1 var(--rf-font-heading); letter-spacing: -0.015em; margin: 0;
+}
+.readflow-header-meta { font-size: 12px; color: var(--rf-neutral-600); margin-top: 3px; }
+
+.readflow-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 999px;
+  border: 1px solid var(--rf-divider); background: transparent;
+  color: var(--rf-neutral-700); cursor: pointer; flex: none;
+}
+.readflow-icon-btn:hover { background: color-mix(in srgb, var(--rf-text) 7%, transparent); }
+.readflow-icon-btn:focus-visible { outline: 2px solid var(--rf-accent); outline-offset: 2px; }
+.readflow-icon-btn-plain { border-color: transparent; }
+.readflow-icon-btn-text { font: 600 12px/1 var(--rf-font-heading); }
+
+.readflow-body { flex: 1; overflow-y: auto; padding: var(--rf-space-4); }
+
+.readflow-footer {
+  padding: var(--rf-space-3) var(--rf-space-4);
+  border-top: 1px solid var(--rf-divider);
+  display: flex; flex-direction: column; gap: var(--rf-space-2);
+  flex: none;
+}
+.readflow-footer-row { display: flex; align-items: center; gap: var(--rf-space-2); }
+
+/* — buttons — */
+.readflow-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: 999px; border: none; cursor: pointer;
+  font-family: var(--rf-font-heading); font-size: 14px;
+  padding: 12px 15px;
+}
+.readflow-btn-block { width: 100%; }
+.readflow-btn-primary { background: var(--rf-accent); color: var(--rf-bg); }
+.readflow-btn-primary:hover { background: var(--rf-accent-600); }
+.readflow-btn-primary:active { background: var(--rf-accent-700); }
+.readflow-btn-secondary {
+  border: 1px solid var(--rf-divider); background: transparent; color: var(--rf-text);
+  font-size: 13.5px; padding: 9px 14px;
+}
+.readflow-btn-secondary:hover { background: color-mix(in srgb, var(--rf-text) 7%, transparent); }
+.readflow-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.readflow-btn:focus-visible { outline: 2px solid var(--rf-accent); outline-offset: 2px; }
+.readflow-spacer { flex: 1; }
+
+/* — settings fields (shared: start state + overlay) — */
+.readflow-settings { display: flex; flex-direction: column; gap: var(--rf-space-4); }
+.readflow-settings-group { display: flex; flex-direction: column; gap: var(--rf-space-2); }
+.readflow-settings-label {
+  font: 600 11px/1.4 var(--rf-font-body); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--rf-neutral-600);
 }
 
-.readflow-panel label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.readflow-level-seg {
+  display: inline-flex; gap: 4px; padding: 3px; border-radius: 999px;
+  background: var(--rf-neutral-200); align-self: flex-start;
 }
-
-.readflow-panel input[type="number"] {
-  width: 56px;
-  padding: 4px 6px;
-  border-radius: 4px;
-  border: none;
+.readflow-level-opt {
+  border: none; border-radius: 999px; padding: 5px 13px; cursor: pointer;
+  font: 400 13px/1.2 var(--rf-font-heading); background: transparent; color: var(--rf-neutral-700);
 }
+.readflow-level-opt.active { background: var(--rf-accent); color: var(--rf-bg); }
+.readflow-level-opt:focus-visible { outline: 2px solid var(--rf-accent); outline-offset: 2px; }
 
-#readflow-start-capture {
-  margin-top: 10px;
-  background: #1a73e8;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 6px 10px;
+.readflow-stepper { display: flex; align-items: center; gap: var(--rf-space-2); }
+.readflow-stepper-btn {
+  width: 36px; height: 36px; border-radius: 999px; border: 1px solid var(--rf-divider);
+  background: transparent; color: var(--rf-text); font: 400 17px/1 var(--rf-font-heading);
   cursor: pointer;
-  font-size: 13px;
+}
+.readflow-stepper-btn:hover { background: color-mix(in srgb, var(--rf-text) 7%, transparent); }
+.readflow-stepper-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.readflow-stepper-btn:focus-visible { outline: 2px solid var(--rf-accent); outline-offset: 2px; }
+.readflow-stepper-value { min-width: 46px; text-align: center; font: 400 19px/1.2 var(--rf-font-heading); }
+.readflow-stepper-unit { font-size: 13px; color: var(--rf-neutral-700); }
+
+.readflow-checkbox-row { display: flex; align-items: center; gap: var(--rf-space-2); font-size: 13.5px; margin-top: var(--rf-space-2); }
+
+.readflow-apikey-row { display: flex; align-items: center; gap: var(--rf-space-2); flex-wrap: wrap; }
+.readflow-apikey-value { font-size: 14px; }
+.readflow-apikey-tag { padding: 3px 9px; border-radius: 999px; font: 600 11px/1.4 var(--rf-font-body); }
+.readflow-apikey-tag.verified { background: var(--rf-accent2-200); color: var(--rf-accent2-700); }
+.readflow-apikey-tag.missing { background: var(--rf-accent-200); color: var(--rf-accent-700); }
+.readflow-apikey-edit { display: none; flex: 1 0 100%; gap: var(--rf-space-2); margin-top: var(--rf-space-2); }
+.readflow-apikey-edit.open { display: flex; }
+.readflow-apikey-edit input {
+  flex: 1; min-height: 36px; padding: 6px 12px; font: inherit; font-size: 13px;
+  color: var(--rf-text); background: var(--rf-surface);
+  border: 1px solid var(--rf-divider); border-radius: 999px;
+}
+.readflow-apikey-edit input:focus-visible { border-color: var(--rf-accent); outline: none; }
+.readflow-link-btn {
+  background: none; border: none; padding: 0; font: 400 13px/1.4 var(--rf-font-body);
+  color: var(--rf-accent-700); cursor: pointer; text-decoration: underline;
 }
 
-#readflow-start-capture:hover { background: #1558b0; }
-
-.readflow-panel-controls {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* — tabs — */
+.readflow-tabs { display: flex; gap: 6px; }
+.readflow-tab {
+  flex: 1; border-radius: 999px; padding: 9px 6px; cursor: pointer;
+  font: 400 14px/1.2 var(--rf-font-heading); display: inline-flex; align-items: center;
+  justify-content: center; gap: 6px; background: var(--rf-neutral-200); color: var(--rf-neutral-700);
+  border: 1px solid transparent;
+}
+.readflow-tab.active { background: var(--rf-accent); color: var(--rf-bg); border-color: var(--rf-accent); }
+.readflow-tab:focus-visible { outline: 2px solid var(--rf-accent); outline-offset: 2px; }
+.readflow-tab-badge {
+  font: 600 11px/1 var(--rf-font-body); padding: 3px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--rf-text) 10%, transparent); color: var(--rf-neutral-700);
+}
+.readflow-tab.active .readflow-tab-badge {
+  background: color-mix(in srgb, #f5ead8 32%, transparent); color: var(--rf-bg);
 }
 
-.readflow-font-size-btn {
-  background: none;
-  border: 1px solid #45475a;
-  border-radius: 4px;
-  color: #cdd6f4;
-  font-size: 11px;
-  padding: 2px 6px;
-  cursor: pointer;
+/* — outline tab — */
+.readflow-outline { display: flex; flex-direction: column; gap: var(--rf-space-3); }
+.readflow-outline-scene {
+  padding: var(--rf-space-3) var(--rf-space-4); border-radius: var(--rf-radius-md);
+  background: var(--rf-accent2-100); border: 1px solid var(--rf-accent2-200);
 }
-
-.readflow-font-size-btn:hover { background: #313244; }
-
-.readflow-panel-restart {
-  background: none;
-  border: none;
-  color: #cdd6f4;
-  font-size: 15px;
-  cursor: pointer;
+.readflow-outline-scene-label {
+  font: 600 11px/1.4 var(--rf-font-body); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--rf-accent2-700); margin-bottom: 6px;
 }
+.readflow-outline-scene p { margin: 0; font-size: 1em; line-height: 1.65; }
+.readflow-outline-points { display: flex; flex-direction: column; gap: var(--rf-space-3); }
+.readflow-outline-point { display: flex; gap: var(--rf-space-3); }
+.readflow-outline-dot { flex: none; width: 9px; height: 9px; border-radius: 999px; background: var(--rf-accent); margin-top: 8px; }
+.readflow-outline-point p { margin: 0; font-size: 1em; line-height: 1.65; }
+.readflow-outline-footnote { margin: 0; font-size: 0.83em; color: var(--rf-neutral-600); }
 
-.readflow-panel strong { color: #89b4fa; }
-
-.readflow-panel code {
-  background: #313244;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 13px;
-  color: #f9e2af;
+/* — vocab tab — */
+.readflow-vocab-list { display: flex; flex-direction: column; gap: var(--rf-space-3); }
+.readflow-vocab-card {
+  border-radius: var(--rf-radius-md); background: var(--rf-surface); box-shadow: var(--rf-shadow-sm);
+  padding: var(--rf-space-3) var(--rf-space-4); display: flex; flex-direction: column; gap: var(--rf-space-2);
 }
-
-.readflow-panel ul { margin: 4px 0; padding-left: 16px; }
-.readflow-panel li { margin: 2px 0; }
-.readflow-panel em { color: #a6e3a1; font-style: italic; }
-.readflow-note { color: #f9e2af; font-size: 12px; margin-bottom: 8px; }
-.readflow-loading { color: #89b4fa; font-style: italic; }
-.readflow-error { color: #f38ba8; }
-.readflow-usage { color: #6c7086; font-size: 11px; margin-top: 12px; }
-
-.readflow-highlight-btn {
-  background: #313244;
-  color: #f9e2af;
-  border: 1px solid #f9e2af;
-  border-radius: 4px;
-  padding: 1px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  vertical-align: middle;
+.readflow-vocab-head { display: flex; align-items: baseline; gap: var(--rf-space-2); }
+.readflow-vocab-word { font: 400 19px/1.2 var(--rf-font-heading); color: var(--rf-accent-800); }
+.readflow-vocab-pos { font: 400 12px/1.2 var(--rf-font-body); color: var(--rf-neutral-600); font-style: italic; }
+.readflow-vocab-zh { margin: 0; font-size: 1em; line-height: 1.6; }
+.readflow-vocab-quote {
+  margin: 0; padding-left: var(--rf-space-3); border-left: 3px solid var(--rf-accent-300);
+  font-size: 0.93em; line-height: 1.55; color: var(--rf-neutral-700); font-style: italic;
 }
-
-.readflow-highlight-btn:hover { background: #45475a; }
-
-.readflow-highlight-btn.active {
-  background: #f9e2af;
-  color: #1e1e2e;
+.readflow-speak-btn {
+  width: 30px; height: 30px; border-radius: 999px; border: 1px solid var(--rf-divider);
+  background: transparent; color: var(--rf-neutral-700); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
 }
-
-mark.readflow-highlight {
-  background: #ffe066;
-  color: inherit;
+.readflow-speak-btn:hover { background: color-mix(in srgb, var(--rf-text) 8%, transparent); }
+.readflow-speak-btn:focus-visible { outline: 2px solid var(--rf-accent); outline-offset: 2px; }
+.readflow-mark-btn {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; flex: none;
+  border-radius: 999px; padding: 5px 11px; font: 400 12.5px/1.2 var(--rf-font-heading); cursor: pointer;
+  background: transparent; color: var(--rf-accent2-700);
+  border: 1px solid color-mix(in srgb, var(--rf-accent-2) 55%, transparent);
 }
+.readflow-mark-btn.active { background: var(--rf-accent2-600); color: var(--rf-bg); border-color: var(--rf-accent2-600); }
+.readflow-mark-btn:focus-visible { outline: 2px solid var(--rf-accent); outline-offset: 2px; }
+
+/* — grammar tab — */
+.readflow-grammar-list { display: flex; flex-direction: column; gap: var(--rf-space-3); }
+.readflow-grammar-card {
+  border-radius: var(--rf-radius-md); background: var(--rf-surface); box-shadow: var(--rf-shadow-sm);
+  padding: var(--rf-space-3) var(--rf-space-4); display: flex; flex-direction: column; gap: var(--rf-space-2);
+}
+.readflow-grammar-frag {
+  display: block; background: var(--rf-neutral-200); color: var(--rf-accent-800);
+  padding: 7px 11px; border-radius: var(--rf-radius-sm); font: 400 13px/1.5 ui-monospace, monospace;
+}
+.readflow-grammar-note { margin: 0; font-size: 1em; line-height: 1.6; }
+.readflow-grammar-rewrite-row { display: flex; gap: var(--rf-space-2); align-items: baseline; }
+.readflow-grammar-rewrite-label {
+  flex: none; font: 600 11px/1.4 var(--rf-font-body); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--rf-accent2-700);
+}
+.readflow-grammar-rewrite-row p { margin: 0; font-size: 0.93em; line-height: 1.55; color: var(--rf-neutral-700); }
+
+/* — settings overlay (gear icon, result state only) — */
+.readflow-settings-overlay {
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0; box-sizing: border-box; z-index: 30;
+  background: color-mix(in srgb, #201e1d 34%, transparent);
+  display: flex; align-items: flex-start; justify-content: center; padding: var(--rf-space-4);
+}
+.readflow-settings-card {
+  width: 100%; border-radius: var(--rf-radius-lg); background: var(--rf-bg); box-shadow: var(--rf-shadow-lg);
+  padding: var(--rf-space-4); display: flex; flex-direction: column; gap: var(--rf-space-4);
+  max-height: calc(100% - var(--rf-space-4) * 2); overflow-y: auto;
+}
+.readflow-settings-card-head { display: flex; align-items: center; gap: var(--rf-space-2); }
+.readflow-settings-card-head h3 { font: 400 20px/1.1 var(--rf-font-heading); letter-spacing: -0.015em; margin: 0; flex: 1; }
+.readflow-settings-actions { display: flex; gap: var(--rf-space-2); }
+.readflow-settings-actions .readflow-btn-secondary { flex: 1; }
+.readflow-settings-actions .readflow-btn-primary { flex: 1.4; }
+
+/* — status blocks — */
+.readflow-loading { color: var(--rf-accent-700); font-style: italic; font-size: 0.97em; }
+.readflow-error {
+  color: var(--rf-accent-800); background: var(--rf-accent-100); border: 1px solid var(--rf-accent-200);
+  border-radius: var(--rf-radius-md); padding: var(--rf-space-3) var(--rf-space-4); font-size: 14px; line-height: 1.6;
+}
+.readflow-note {
+  color: var(--rf-accent2-700); background: var(--rf-accent2-100); border-radius: var(--rf-radius-md);
+  padding: var(--rf-space-2) var(--rf-space-3); font-size: 0.83em; margin-bottom: var(--rf-space-3);
+}
+.readflow-usage { color: var(--rf-neutral-600); font-size: 0.76em; margin-top: var(--rf-space-3); }
+
+/* — highlight mark left in the book's own page content (unrelated to the panel's tokens) — */
+mark.readflow-highlight { background: #ffe066; color: inherit; }
