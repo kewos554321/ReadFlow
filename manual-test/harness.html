@@ -97,7 +97,19 @@
     storage: {
       local: {
         get: function (keys, cb) {
-          cb(window.__harness.apiKeyPresent ? { apiKey: 'harness-fake-key' } : {});
+          cb(window.__harness.apiKeyPresent ? { apiKey: window.__harness.apiKeyValue || 'harness-fake-key' } : {});
+        },
+        // Backs the redesign's in-panel "儲存" button (儲存 → chrome.storage.local.set).
+        // Stores onto window.__harness — mirroring how apiKeyPresent already
+        // drives get() — so a subsequent get() reflects what was just saved.
+        set: function (obj, cb) {
+          setTimeout(function () {
+            if (obj && typeof obj.apiKey !== 'undefined') {
+              window.__harness.apiKeyValue = obj.apiKey;
+              window.__harness.apiKeyPresent = true;
+            }
+            if (cb) cb();
+          }, 0);
         }
       }
     },

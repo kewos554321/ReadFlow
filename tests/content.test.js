@@ -21,6 +21,15 @@ describe('computeTabCounts', () => {
     };
     expect(computeTabCounts(result)).toEqual({ outline: 3, vocab: 2, grammar: 1 });
   });
+
+  // background.js's callGeminiForChapter now normalizes a malformed structured
+  // result before it ever reaches content.js, but this documents why
+  // onCaptureFinished's sendMessage callback still wraps computeTabCounts /
+  // renderDrawerResult in a try/catch as defense in depth: a result missing
+  // an expected array field throws here rather than rendering nothing.
+  test('throws on a malformed result missing an expected array field', () => {
+    expect(() => computeTabCounts({ points: ['a'], vocab: [] })).toThrow();
+  });
 });
 
 describe('maskApiKey', () => {

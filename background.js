@@ -88,10 +88,23 @@ function buildChapterRequestBody(pages, level) {
       parts: [{ text: joined }]
     }],
     generationConfig: {
-      maxOutputTokens: 2200,
+      maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       responseSchema: CHAPTER_RESPONSE_SCHEMA,
     }
+  };
+}
+
+// A parseable-but-partially-malformed structured response (a missing key,
+// or a field of the wrong type) shouldn't crash the drawer downstream —
+// coerce it into a shape renderTabBody/computeTabCounts can always handle.
+function normalizeChapterResult(raw) {
+  const obj = raw && typeof raw === 'object' ? raw : {};
+  return {
+    scene: typeof obj.scene === 'string' ? obj.scene : '',
+    points: Array.isArray(obj.points) ? obj.points : [],
+    vocab: Array.isArray(obj.vocab) ? obj.vocab : [],
+    grammar: Array.isArray(obj.grammar) ? obj.grammar : [],
   };
 }
 
@@ -108,7 +121,16 @@ async function callGeminiForChapter(apiKey, pages, level) {
     throw new Error(data.error?.message || 'API request failed');
   }
 
-  const rawText = data.candidates[0].content.parts[0].text;
+  const candidate = data.candidates?.[0];
+  if (candidate?.finishReason === 'MAX_TOKENS') {
+    throw new Error('內容過長，請減少擷取頁數後再試');
+  }
+
+  const rawText = candidate?.content?.parts?.[0]?.text;
+  if (!rawText) {
+    throw new Error('Gemini 未回傳內容，請稍後再試');
+  }
+
   let result;
   try {
     result = JSON.parse(rawText);
@@ -117,7 +139,7 @@ async function callGeminiForChapter(apiKey, pages, level) {
   }
 
   return {
-    result,
+    result: normalizeChapterResult(result),
     usage: data.usageMetadata || null,
   };
 }
@@ -139,6 +161,7 @@ if (typeof module !== 'undefined') {
     buildChapterRequestBody,
     callGeminiForChapter,
     buildChapterSystemPrompt,
+    normalizeChapterResult,
     CHAPTER_RESPONSE_SCHEMA,
   };
 }

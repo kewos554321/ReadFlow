@@ -692,17 +692,22 @@ function onCaptureFinished(pages, reachedEnd) {
           setDrawerOpen(true);
           return;
         }
-        lastResult = response.result;
-        lastMeta = {
-          pageCount: pages.length,
-          level: panelLevel,
-          reachedEnd,
-          usage: response.usage,
-          debug: false,
-        };
-        resultTab = 'outline';
-        renderDrawerResult();
-        setDrawerOpen(true);
+        try {
+          lastResult = response.result;
+          lastMeta = {
+            pageCount: pages.length,
+            level: panelLevel,
+            reachedEnd,
+            usage: response.usage,
+            debug: false,
+          };
+          resultTab = 'outline';
+          renderDrawerResult();
+          setDrawerOpen(true);
+        } catch (e) {
+          renderDrawerError('導讀結果格式錯誤，請重新分析。');
+          setDrawerOpen(true);
+        }
       }
     );
   });

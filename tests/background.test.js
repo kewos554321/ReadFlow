@@ -3,6 +3,7 @@ const {
   callGeminiForChapter,
   joinPageTexts,
   buildChapterSystemPrompt,
+  normalizeChapterResult,
 } = require('../background.js');
 
 test('joinPageTexts joins pages with a separator and skips blanks', () => {
@@ -16,7 +17,7 @@ test('buildChapterRequestBody puts joined page text in the user content', () => 
     parts: [{ text: 'Once upon a time.\n\n---\n\nThe end.' }]
   }]);
   expect(body.system_instruction.parts[0].text).toContain('導讀');
-  expect(body.generationConfig.maxOutputTokens).toBe(2200);
+  expect(body.generationConfig.maxOutputTokens).toBe(4096);
   expect(body.generationConfig.responseMimeType).toBe('application/json');
   expect(body.generationConfig.responseSchema).toBeDefined();
 });
@@ -76,4 +77,78 @@ test('callGeminiForChapter throws a friendly error when the model returns invali
   await expect(
     callGeminiForChapter('AIza-test', ['text'], 'B2')
   ).rejects.toThrow('無法解析導讀結果');
+});
+
+test('callGeminiForChapter throws a friendly error when candidates is empty (e.g. a safety block)', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ candidates: [], usageMetadata: null })
+  });
+
+  await expect(
+    callGeminiForChapter('AIza-test', ['text'], 'B2')
+  ).rejects.toThrow('Gemini 未回傳內容');
+});
+
+test('callGeminiForChapter throws a friendly error when candidates is missing entirely', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ usageMetadata: null })
+  });
+
+  await expect(
+    callGeminiForChapter('AIza-test', ['text'], 'B2')
+  ).rejects.toThrow('Gemini 未回傳內容');
+});
+
+test('callGeminiForChapter throws a distinct, actionable error when Gemini truncates on MAX_TOKENS', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"scene":' }] } }],
+      usageMetadata: null,
+    })
+  });
+
+  await expect(
+    callGeminiForChapter('AIza-test', ['text'], 'B2')
+  ).rejects.toThrow('內容過長');
+});
+
+test('callGeminiForChapter normalizes a parseable-but-malformed result instead of crashing downstream', async () => {
+  // scene has the wrong type, points is missing, vocab/grammar are present.
+  const malformed = { scene: 123, vocab: [{ word: 'x' }], grammar: 'not-an-array' };
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text: JSON.stringify(malformed) }] } }],
+      usageMetadata: null,
+    })
+  });
+
+  const { result } = await callGeminiForChapter('AIza-test', ['text'], 'B2');
+  expect(result).toEqual({
+    scene: '',
+    points: [],
+    vocab: [{ word: 'x' }],
+    grammar: [],
+  });
+});
+
+describe('normalizeChapterResult', () => {
+  test('passes through an already well-formed result', () => {
+    const good = { scene: 's', points: ['a'], vocab: [{ word: 'x' }], grammar: [{ frag: 'y' }] };
+    expect(normalizeChapterResult(good)).toEqual(good);
+  });
+
+  test('coerces missing/wrong-typed fields to safe defaults', () => {
+    expect(normalizeChapterResult({})).toEqual({ scene: '', points: [], vocab: [], grammar: [] });
+    expect(normalizeChapterResult({ scene: null, points: 'x', vocab: {}, grammar: 5 }))
+      .toEqual({ scene: '', points: [], vocab: [], grammar: [] });
+  });
+
+  test('handles a completely non-object input', () => {
+    expect(normalizeChapterResult(null)).toEqual({ scene: '', points: [], vocab: [], grammar: [] });
+    expect(normalizeChapterResult('oops')).toEqual({ scene: '', points: [], vocab: [], grammar: [] });
+  });
 });

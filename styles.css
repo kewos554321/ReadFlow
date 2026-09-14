@@ -247,12 +247,12 @@
   font: 600 11px/1.4 var(--rf-font-body); letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--rf-accent2-700); margin-bottom: 6px;
 }
-.readflow-outline-scene p { margin: 0; font-size: 14.5px; line-height: 1.65; }
+.readflow-outline-scene p { margin: 0; font-size: 1em; line-height: 1.65; }
 .readflow-outline-points { display: flex; flex-direction: column; gap: var(--rf-space-3); }
 .readflow-outline-point { display: flex; gap: var(--rf-space-3); }
 .readflow-outline-dot { flex: none; width: 9px; height: 9px; border-radius: 999px; background: var(--rf-accent); margin-top: 8px; }
-.readflow-outline-point p { margin: 0; font-size: 14.5px; line-height: 1.65; }
-.readflow-outline-footnote { margin: 0; font-size: 12px; color: var(--rf-neutral-600); }
+.readflow-outline-point p { margin: 0; font-size: 1em; line-height: 1.65; }
+.readflow-outline-footnote { margin: 0; font-size: 0.83em; color: var(--rf-neutral-600); }
 
 /* — vocab tab — */
 .readflow-vocab-list { display: flex; flex-direction: column; gap: var(--rf-space-3); }
@@ -263,10 +263,10 @@
 .readflow-vocab-head { display: flex; align-items: baseline; gap: var(--rf-space-2); }
 .readflow-vocab-word { font: 400 19px/1.2 var(--rf-font-heading); color: var(--rf-accent-800); }
 .readflow-vocab-pos { font: 400 12px/1.2 var(--rf-font-body); color: var(--rf-neutral-600); font-style: italic; }
-.readflow-vocab-zh { margin: 0; font-size: 14.5px; line-height: 1.6; }
+.readflow-vocab-zh { margin: 0; font-size: 1em; line-height: 1.6; }
 .readflow-vocab-quote {
   margin: 0; padding-left: var(--rf-space-3); border-left: 3px solid var(--rf-accent-300);
-  font-size: 13.5px; line-height: 1.55; color: var(--rf-neutral-700); font-style: italic;
+  font-size: 0.93em; line-height: 1.55; color: var(--rf-neutral-700); font-style: italic;
 }
 .readflow-speak-btn {
   width: 30px; height: 30px; border-radius: 999px; border: 1px solid var(--rf-divider);
@@ -294,13 +294,13 @@
   display: block; background: var(--rf-neutral-200); color: var(--rf-accent-800);
   padding: 7px 11px; border-radius: var(--rf-radius-sm); font: 400 13px/1.5 ui-monospace, monospace;
 }
-.readflow-grammar-note { margin: 0; font-size: 14.5px; line-height: 1.6; }
+.readflow-grammar-note { margin: 0; font-size: 1em; line-height: 1.6; }
 .readflow-grammar-rewrite-row { display: flex; gap: var(--rf-space-2); align-items: baseline; }
 .readflow-grammar-rewrite-label {
   flex: none; font: 600 11px/1.4 var(--rf-font-body); letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--rf-accent2-700);
 }
-.readflow-grammar-rewrite-row p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--rf-neutral-700); }
+.readflow-grammar-rewrite-row p { margin: 0; font-size: 0.93em; line-height: 1.55; color: var(--rf-neutral-700); }
 
 /* — settings overlay (gear icon, result state only) — */
 .readflow-settings-overlay {
@@ -320,16 +320,16 @@
 .readflow-settings-actions .readflow-btn-primary { flex: 1.4; }
 
 /* — status blocks — */
-.readflow-loading { color: var(--rf-accent-700); font-style: italic; font-size: 14px; }
+.readflow-loading { color: var(--rf-accent-700); font-style: italic; font-size: 0.97em; }
 .readflow-error {
   color: var(--rf-accent-800); background: var(--rf-accent-100); border: 1px solid var(--rf-accent-200);
   border-radius: var(--rf-radius-md); padding: var(--rf-space-3) var(--rf-space-4); font-size: 14px; line-height: 1.6;
 }
 .readflow-note {
   color: var(--rf-accent2-700); background: var(--rf-accent2-100); border-radius: var(--rf-radius-md);
-  padding: var(--rf-space-2) var(--rf-space-3); font-size: 12px; margin-bottom: var(--rf-space-3);
+  padding: var(--rf-space-2) var(--rf-space-3); font-size: 0.83em; margin-bottom: var(--rf-space-3);
 }
-.readflow-usage { color: var(--rf-neutral-600); font-size: 11px; margin-top: var(--rf-space-3); }
+.readflow-usage { color: var(--rf-neutral-600); font-size: 0.76em; margin-top: var(--rf-space-3); }
 
 /* — highlight mark left in the book's own page content (unrelated to the panel's tokens) — */
 mark.readflow-highlight { background: #ffe066; color: inherit; }
