@@ -505,7 +505,7 @@ function onDrawerClick(e) {
     return;
   }
   if (action === 'dec-pages' || action === 'inc-pages') {
-    const delta = action === 'inc-pages' ? 5 : -5;
+    const delta = action === 'inc-pages' ? 1 : -1;
     if (scope === 'start') { panelPageCount = clampPageCount(panelPageCount + delta); renderDrawerStart(); }
     else { settingsDraft.pageCount = clampPageCount(settingsDraft.pageCount + delta); renderDrawerResult(); }
     return;
