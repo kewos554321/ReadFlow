@@ -1,17 +1,52 @@
 console.log('[ReadFlow] loaded in:', window.location.href);
 
-// ── Inlined: renderMarkdown ───────────────────────────────────────
-function renderMarkdown(text) {
-  let html = text
+// ── HTML escaping ────────────────────────────────────────────────
+// Every dynamic string interpolated into innerHTML below (Gemini's
+// output, a user-typed API key) goes through this first — Gemini's
+// output is untrusted content, not UI copy we wrote ourselves.
+function escapeHtml(str) {
+  return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/(?<!\*)\*(?!\*)([^*\n]+)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
-  html = html.replace(/^\* (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/\n/g, '<br>');
-  return html;
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Inline icons ─────────────────────────────────────────────────
+// Lucide paths (stroke-width 2.75), copied from the Organic mockup.
+// No icon library — this project has no build step to pull one in.
+const ICON_PATHS = {
+  book: ['M12 7v14', 'M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z'],
+  gear: ['M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2'],
+  reanalyze: ['M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8', 'M3 3v5h5'],
+  close: ['M18 6 6 18', 'M6 6l12 12'],
+  speak: ['M11 5 6 9H2v6h4l5 4z', 'M15.54 8.46a5 5 0 0 1 0 7.07'],
+  mark: ['m9 11-6 6v3h9l3-3', 'm22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'],
+  export: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'm7 10 5 5 5-5', 'M12 15V3'],
+  history: ['M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z', 'M12 6v6l4 2'],
+};
+
+function svgIcon(name, size) {
+  const paths = (ICON_PATHS[name] || []).map((d) => `<path d="${d}"></path>`).join('');
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+}
+
+// ── Pure helpers (unit-tested — see tests/content.test.js) ───────
+function clampPageCount(count) {
+  return Math.max(1, Math.min(100, count));
+}
+
+function computeTabCounts(result) {
+  return {
+    outline: result.points.length,
+    vocab: result.vocab.length,
+    grammar: result.grammar.length,
+  };
+}
+
+function maskApiKey(key) {
+  if (!key || key.length <= 8) return key || '';
+  return key.slice(0, 4) + '····' + key.slice(-4);
 }
 
 // ── Top frame: persistent Chapter Guide drawer ──────────────────────
@@ -41,16 +76,6 @@ let resizeHandle = null;
 // (the popup and the injected page are different origins/contexts and
 // don't share one; chrome.storage.local is the mechanism actually
 // shared between them — same as apiKey below).
-//
-// Lets the whole drawer flow (loading → result → highlight → error) run
-// with zero dependency on a real book or a real Gemini call: it skips
-// the real cross-frame page-turn capture and the real
-// chrome.runtime.sendMessage entirely, using canned pages and a canned
-// analysis instead. Only ever consulted in the top frame — see
-// onStartCapture/runDebugCapture below; nested reader frames never need
-// it, since they never make the real Gemini call themselves. Read once,
-// asynchronously, before initDrawer() runs (see the bootstrap below) so
-// the tab's label is correct from its very first paint.
 let DEBUG_MODE = false;
 let DEBUG_FORCE_ERROR = false;
 
@@ -59,18 +84,7 @@ let DEBUG_FORCE_ERROR = false;
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 1000;
 const PANEL_WIDTH_STORAGE_KEY = 'readflow-panel-width';
-// How far the tab tucks under the panel's left edge (the tab sits below
-// the panel in z-index — see .readflow-drawer-tab in styles.css — so the
-// panel's own opaque edge is the only boundary ever visible). Measured
-// live via getBoundingClientRect during debugging: even a 4px overlap
-// already left zero actual gap (elementsFromPoint confirmed no pixel of
-// page ever showed through), and the tab is only ~40px wide (vertical
-// text, 8px side padding) — every extra pixel here comes straight out of
-// the visible glyphs, not spare padding, so this stays as small as the
-// pixel/DPR safety margin actually needs.
 const TAB_OVERLAP_PX = 2;
-// Half the resize handle's width: keeps its hit-area straddling the
-// panel's actual edge (unrelated to how far the tab tucks under it).
 const RESIZE_HANDLE_STRADDLE_PX = 3;
 let panelWidth = clampPanelWidth(parseInt(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY), 10) || 360);
 
@@ -80,6 +94,20 @@ const BODY_FONT_SIZE_MIN = 12;
 const BODY_FONT_SIZE_MAX = 22;
 const BODY_FONT_SIZE_STORAGE_KEY = 'readflow-body-font-size';
 let bodyFontSize = clampBodyFontSize(parseInt(localStorage.getItem(BODY_FONT_SIZE_STORAGE_KEY), 10) || 15);
+
+// ── Chapter Guide state ──────────────────────────────────────────
+let panelLevel = 'B2';               // 'B1' | 'B2' | 'C1'
+let panelPageCount = 10;
+let panelCurrentPageOnly = false;
+let settingsOverlayOpen = false;     // gear-icon overlay, result state only
+let settingsDraft = null;            // { level, pageCount, currentPageOnly } while the overlay is open
+let markedWords = new Set();         // words this frame has asked to highlight, for 畫記 button state
+let lastResult = null;               // { scene, points, vocab, grammar }
+let lastMeta = null;                 // { pageCount, level, reachedEnd, usage, debug }
+let resultTab = 'outline';           // 'outline' | 'vocab' | 'grammar'
+let currentView = 'start';           // 'start' | 'loading' | 'result' | 'error'
+let currentApiKey = '';
+let apiKeyEditOpen = false;
 
 if (window === window.top && window.location.pathname.startsWith('/books')) {
   chrome.storage.local.get(['debugMode', 'debugModeError'], ({ debugMode, debugModeError }) => {
@@ -96,13 +124,15 @@ function initDrawer() {
   drawerTab = tab;
   tab.id = 'readflow-drawer-tab';
   tab.className = 'readflow-drawer-tab';
-  tab.textContent = DEBUG_MODE ? '📖 導讀 (Debug)' : '📖 導讀';
+  tab.textContent = DEBUG_MODE ? '導讀 (Debug)' : '導讀';
   tab.title = 'ReadFlow: Chapter Guide';
   tab.addEventListener('click', () => setDrawerOpen(!drawerOpen));
   document.body.appendChild(tab);
 
   drawerBody = document.createElement('div');
   drawerBody.className = 'readflow-panel';
+  drawerBody.addEventListener('click', onDrawerClick);
+  drawerBody.addEventListener('change', onDrawerChange);
   document.body.appendChild(drawerBody);
 
   resizeHandle = document.createElement('div');
@@ -111,7 +141,11 @@ function initDrawer() {
   document.body.appendChild(resizeHandle);
 
   applyPanelWidth(panelWidth);
-  renderDrawerInput();
+
+  chrome.storage.local.get(['apiKey'], ({ apiKey }) => {
+    currentApiKey = apiKey || '';
+    renderDrawerStart();
+  });
 }
 
 // The tab stays put at the page edge when closed, but shifts to sit at
@@ -127,13 +161,6 @@ function setDrawerOpen(open) {
   drawerTab.style.right = open ? (panelWidth - TAB_OVERLAP_PX) + 'px' : '';
 }
 
-// Rounded to a whole pixel: dragging produces fractional widths (clientX
-// is fractional on HiDPI/trackpad input), and a fractional value handed to
-// both a `width` (layout/reflow) and a `right` offset (positioning,
-// usually composited) can get device-pixel-snapped along two different
-// code paths — leaving a permanent seam after the drag ends, not just a
-// transient one. Committing an integer keeps both paths snapping to the
-// same pixel.
 function clampPanelWidth(width) {
   return Math.max(PANEL_WIDTH_MIN, Math.min(PANEL_WIDTH_MAX, Math.round(width)));
 }
@@ -145,35 +172,14 @@ function applyPanelWidth(width) {
   if (drawerOpen) drawerTab.style.right = (panelWidth - TAB_OVERLAP_PX) + 'px';
 }
 
-// Dragging left (pointer moves toward smaller clientX) widens the
-// right-docked panel, so the delta is startX - currentX, not the reverse.
-//
-// Uses Pointer Capture (not plain mousemove/mouseup on document) because
-// Play Books' reader content sits in a cross-origin iframe: a fast drag
-// crosses into that iframe between two move events, and a document-level
-// listener on the top frame never sees pointer events that land on a
-// different document. setPointerCapture forces every subsequent event for
-// this pointer to keep targeting the handle itself regardless of what's
-// actually under the cursor, so fast drags no longer drop the gesture.
 function onResizeHandlePointerDown(e) {
   e.preventDefault();
   const startX = e.clientX;
   const startWidth = panelWidth;
   resizeHandle.classList.add('dragging');
-  // The tab's `right` normally animates (0.25s) so open/close feels like a
-  // slide. During a drag that same transition makes it visibly lag a
-  // quarter-second behind the pointer instead of tracking it — drop it for
-  // the duration of the drag so the tab follows 1:1, then restore it.
   drawerTab.classList.add('resizing');
   resizeHandle.setPointerCapture(e.pointerId);
 
-  // pointermove can fire faster than the browser paints. Changing the
-  // panel's `width` triggers layout (reflow), which is heavier than the
-  // tab/handle's `right` offset — calling applyPanelWidth() straight from
-  // every raw pointermove let the panel's reflow fall a frame behind the
-  // tab, opening a visible gap while dragging fast. Collapsing all moves
-  // between paints into a single rAF-scheduled update keeps the panel,
-  // tab, and handle moving in the same frame.
   let pendingWidth = null;
   let rafId = null;
   function flush() {
@@ -203,38 +209,362 @@ function clampBodyFontSize(size) {
 
 function applyBodyFontSize(size) {
   bodyFontSize = clampBodyFontSize(size);
-  const body = drawerBody.querySelector('.readflow-panel-body');
+  const body = drawerBody.querySelector('.readflow-body');
   if (body) body.style.fontSize = bodyFontSize + 'px';
   localStorage.setItem(BODY_FONT_SIZE_STORAGE_KEY, String(bodyFontSize));
 }
 
-function renderDrawerInput() {
-  drawerBody.innerHTML = `
-    <label>往後幾頁
-      <input type="number" id="readflow-page-count" value="10" min="1" max="100">
-    </label>
-    <label><input type="checkbox" id="readflow-current-page-only"> 只掃描目前頁面</label>
-    <button id="readflow-start-capture">開始分析</button>
+// ── Rendering: shared settings fields ────────────────────────────
+// Used both inline as the drawer's start state (before any analysis)
+// and inside the gear-icon overlay once a result exists. `scope` is
+// 'start' or 'overlay' — the click/change dispatcher below uses it to
+// decide whether to mutate the live panel* state directly or the
+// draft copy the overlay edits before "儲存並重新分析"/"取消".
+function renderSettingsFields(source, scope) {
+  const levels = ['B1', 'B2', 'C1'];
+  const levelButtons = levels.map((lv) => `
+    <button class="readflow-level-opt${source.level === lv ? ' active' : ''}" data-action="pick-level" data-scope="${scope}" data-level="${lv}">${lv}</button>
+  `).join('');
+
+  const apiKeyDisplay = currentApiKey
+    ? `<span class="readflow-apikey-value">${escapeHtml(maskApiKey(currentApiKey))}</span><span class="readflow-apikey-tag verified">已驗證</span>`
+    : `<span class="readflow-apikey-tag missing">尚未設定</span>`;
+
+  return `
+    <div class="readflow-settings">
+      <div class="readflow-settings-group">
+        <div class="readflow-settings-label">英文程度</div>
+        <div class="readflow-level-seg">${levelButtons}</div>
+      </div>
+      <div class="readflow-settings-group">
+        <div class="readflow-settings-label">每次擷取頁數</div>
+        <div class="readflow-stepper">
+          <button class="readflow-stepper-btn" data-action="dec-pages" data-scope="${scope}" ${source.currentPageOnly ? 'disabled' : ''}>−</button>
+          <span class="readflow-stepper-value">${source.pageCount}</span>
+          <button class="readflow-stepper-btn" data-action="inc-pages" data-scope="${scope}" ${source.currentPageOnly ? 'disabled' : ''}>+</button>
+          <span class="readflow-stepper-unit">頁</span>
+        </div>
+        <label class="readflow-checkbox-row">
+          <input type="checkbox" data-action="toggle-current-page" data-scope="${scope}" ${source.currentPageOnly ? 'checked' : ''}>
+          只掃描目前頁面
+        </label>
+      </div>
+      <div class="readflow-settings-group">
+        <div class="readflow-settings-label">Gemini API Key</div>
+        <div class="readflow-apikey-row">
+          ${apiKeyDisplay}
+          <span class="readflow-spacer"></span>
+          <button class="readflow-link-btn" data-action="apikey-edit-toggle">更改</button>
+          <div class="readflow-apikey-edit${apiKeyEditOpen ? ' open' : ''}">
+            <input type="password" id="readflow-apikey-input" placeholder="AIza...">
+            <button class="readflow-btn readflow-btn-secondary" data-action="apikey-save">儲存</button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
-  const pageCountInput = drawerBody.querySelector('#readflow-page-count');
-  drawerBody.querySelector('#readflow-current-page-only').addEventListener('change', (e) => {
-    pageCountInput.disabled = e.target.checked;
-  });
-  drawerBody.querySelector('#readflow-start-capture').addEventListener('click', onStartCapture);
 }
 
-// If the reader-content frame never responds (wrong page, or its DOM
-// doesn't match what we look for), nothing would otherwise ever move
-// the drawer past "0/N" — this timeout turns silence into a visible
-// error instead of an infinite spinner. Cleared as soon as any real
-// progress or result arrives.
+function currentSettingsSource() {
+  return { level: panelLevel, pageCount: panelPageCount, currentPageOnly: panelCurrentPageOnly };
+}
+
+// ── Rendering: start state (before any analysis) ─────────────────
+function renderDrawerStart() {
+  currentView = 'start';
+  drawerBody.innerHTML = `
+    <div class="readflow-header">
+      <div class="readflow-header-row">
+        <span class="readflow-header-icon">${svgIcon('book', 19)}</span>
+        <div class="readflow-header-title">
+          <h2>ReadFlow</h2>
+          <div class="readflow-header-meta">設定完成後開始分析這段內容</div>
+        </div>
+        <button class="readflow-icon-btn readflow-icon-btn-plain" data-action="close-drawer" title="收起">${svgIcon('close', 17)}</button>
+      </div>
+    </div>
+    <div class="readflow-body">
+      ${renderSettingsFields(currentSettingsSource(), 'start')}
+    </div>
+    <div class="readflow-footer">
+      <button class="readflow-btn readflow-btn-primary readflow-btn-block" data-action="start-capture">開始分析</button>
+    </div>
+  `;
+}
+
+// ── Rendering: loading state ──────────────────────────────────────
+function renderDrawerLoading(current, total) {
+  currentView = 'loading';
+  drawerBody.innerHTML = `
+    <div class="readflow-header">
+      <div class="readflow-header-row">
+        <span class="readflow-header-icon">${svgIcon('book', 19)}</span>
+        <div class="readflow-header-title"><h2>正在分析</h2></div>
+      </div>
+    </div>
+    <div class="readflow-body">
+      <span class="readflow-loading">正在翻頁擷取內容 (${current}/${total})</span>
+    </div>
+  `;
+}
+
+// ── Rendering: error state ────────────────────────────────────────
+function renderDrawerError(message) {
+  currentView = 'error';
+  drawerBody.innerHTML = `
+    <div class="readflow-header">
+      <div class="readflow-header-row">
+        <span class="readflow-header-icon">${svgIcon('book', 19)}</span>
+        <div class="readflow-header-title"><h2>發生錯誤</h2></div>
+        <button class="readflow-icon-btn readflow-icon-btn-plain" data-action="close-drawer" title="收起">${svgIcon('close', 17)}</button>
+      </div>
+    </div>
+    <div class="readflow-body">
+      <div class="readflow-error">${escapeHtml(message)}</div>
+      <button class="readflow-btn readflow-btn-secondary" style="margin-top:16px" data-action="error-back">返回設定</button>
+    </div>
+  `;
+}
+
+// ── Rendering: result state (tabs) ────────────────────────────────
+function renderTabBody(result, tab) {
+  if (tab === 'outline') {
+    const points = result.points.map((p) => `
+      <div class="readflow-outline-point">
+        <span class="readflow-outline-dot"></span>
+        <p>${escapeHtml(p)}</p>
+      </div>
+    `).join('');
+    return `
+      <div class="readflow-outline">
+        <div class="readflow-outline-scene">
+          <div class="readflow-outline-scene-label">場景</div>
+          <p>${escapeHtml(result.scene)}</p>
+        </div>
+        <div class="readflow-outline-points">${points}</div>
+        <p class="readflow-outline-footnote">不含結局或關鍵轉折。</p>
+      </div>
+    `;
+  }
+
+  if (tab === 'vocab') {
+    const cards = result.vocab.map((v) => {
+      const marked = markedWords.has(v.word.toLowerCase());
+      return `
+        <div class="readflow-vocab-card">
+          <div class="readflow-vocab-head">
+            <span class="readflow-vocab-word">${escapeHtml(v.word)}</span>
+            <span class="readflow-vocab-pos">${escapeHtml(v.pos)}</span>
+            <span class="readflow-spacer"></span>
+            <button class="readflow-speak-btn" data-action="speak" data-word="${escapeHtml(v.word)}" title="朗讀">${svgIcon('speak', 15)}</button>
+            <button class="readflow-mark-btn${marked ? ' active' : ''}" data-action="toggle-mark" data-word="${escapeHtml(v.word)}">${svgIcon('mark', 14)}畫記</button>
+          </div>
+          <p class="readflow-vocab-zh">${escapeHtml(v.zh)}</p>
+          <p class="readflow-vocab-quote">${escapeHtml(v.quote)}</p>
+        </div>
+      `;
+    }).join('');
+    return `<div class="readflow-vocab-list">${cards}</div>`;
+  }
+
+  const cards = result.grammar.map((g) => `
+    <div class="readflow-grammar-card">
+      <code class="readflow-grammar-frag">${escapeHtml(g.frag)}</code>
+      <p class="readflow-grammar-note">${escapeHtml(g.note)}</p>
+      <div class="readflow-grammar-rewrite-row">
+        <span class="readflow-grammar-rewrite-label">改寫</span>
+        <p>${escapeHtml(g.rewrite)}</p>
+      </div>
+    </div>
+  `).join('');
+  return `<div class="readflow-grammar-list">${cards}</div>`;
+}
+
+function renderSettingsOverlayHtml() {
+  return `
+    <div class="readflow-settings-overlay">
+      <div class="readflow-settings-card">
+        <div class="readflow-settings-card-head">
+          <h3>分析設定</h3>
+          <button class="readflow-icon-btn readflow-icon-btn-plain" data-action="close-settings" title="關閉">${svgIcon('close', 16)}</button>
+        </div>
+        ${renderSettingsFields(settingsDraft, 'overlay')}
+        <div class="readflow-settings-actions">
+          <button class="readflow-btn readflow-btn-secondary" data-action="cancel-settings">取消</button>
+          <button class="readflow-btn readflow-btn-primary" data-action="save-settings">儲存並重新分析</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDrawerResult() {
+  currentView = 'result';
+  const result = lastResult;
+  const meta = lastMeta;
+  const counts = computeTabCounts(result);
+  const tabs = [
+    ['outline', '大綱', counts.outline],
+    ['vocab', '生字', counts.vocab],
+    ['grammar', '文法', counts.grammar],
+  ];
+  const tabButtons = tabs.map(([key, name, count]) => `
+    <button class="readflow-tab${resultTab === key ? ' active' : ''}" data-action="pick-tab" data-tab="${key}">
+      ${escapeHtml(name)}<span class="readflow-tab-badge">${count}</span>
+    </button>
+  `).join('');
+
+  const noteHtml = meta.reachedEnd
+    ? `<div class="readflow-note">已到達本書結尾，以下為已收集的內容</div>`
+    : '';
+  const usageHtml = meta.usage
+    ? `<div class="readflow-usage">Token 用量${meta.debug ? '（Debug 模擬）' : ''}：輸入 ${meta.usage.promptTokenCount} ／ 輸出 ${meta.usage.candidatesTokenCount} ／ 總計 ${meta.usage.totalTokenCount}</div>`
+    : '';
+
+  drawerBody.innerHTML = `
+    <div class="readflow-header">
+      <div class="readflow-header-row">
+        <span class="readflow-header-icon">${svgIcon('book', 19)}</span>
+        <div class="readflow-header-title">
+          <h2>本段導讀${DEBUG_MODE ? '（Debug）' : ''}</h2>
+          <div class="readflow-header-meta">${meta.pageCount} 頁 · 程度 ${meta.level} · 剛剛完成</div>
+        </div>
+        <button class="readflow-icon-btn readflow-icon-btn-text" data-action="font-dec" title="縮小文字">A－</button>
+        <button class="readflow-icon-btn readflow-icon-btn-text" data-action="font-inc" title="放大文字">A＋</button>
+        <button class="readflow-icon-btn" data-action="open-settings" title="設定">${svgIcon('gear', 17)}</button>
+        <button class="readflow-icon-btn" data-action="reanalyze" title="重新分析">${svgIcon('reanalyze', 17)}</button>
+        <button class="readflow-icon-btn readflow-icon-btn-plain" data-action="close-drawer" title="收起">${svgIcon('close', 17)}</button>
+      </div>
+      <div class="readflow-tabs">${tabButtons}</div>
+    </div>
+    <div class="readflow-body">
+      ${noteHtml}
+      ${renderTabBody(result, resultTab)}
+      ${usageHtml}
+    </div>
+    <div class="readflow-footer">
+      <button class="readflow-btn readflow-btn-primary readflow-btn-block" disabled title="即將推出">
+        ${svgIcon('export', 16)}一次匯出全書筆記
+      </button>
+      <div class="readflow-footer-row">
+        <button class="readflow-btn readflow-btn-secondary" disabled title="即將推出">${svgIcon('mark', 15)}生字本</button>
+        <button class="readflow-btn readflow-btn-secondary" disabled title="即將推出">${svgIcon('history', 15)}歷史</button>
+        <span class="readflow-spacer"></span>
+        <button class="readflow-btn readflow-btn-secondary" disabled title="即將推出">只匯出本段</button>
+      </div>
+    </div>
+    ${settingsOverlayOpen ? renderSettingsOverlayHtml() : ''}
+  `;
+  applyBodyFontSize(bodyFontSize);
+}
+
+function rerenderCurrentView() {
+  if (currentView === 'start') renderDrawerStart();
+  else if (currentView === 'result') renderDrawerResult();
+  // 'loading' and 'error' are transient and re-rendered by their own flows.
+}
+
+// ── Drawer-wide click/change dispatch ─────────────────────────────
+// One delegated listener (attached once, in initDrawer) instead of
+// re-wiring buttons after every innerHTML swap.
+function onDrawerClick(e) {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const action = el.dataset.action;
+  const scope = el.dataset.scope;
+
+  if (action === 'start-capture') { onStartCapture(); return; }
+  if (action === 'close-drawer') { setDrawerOpen(false); return; }
+  if (action === 'error-back') { renderDrawerStart(); return; }
+  if (action === 'reanalyze') { onStartCapture(); return; }
+
+  if (action === 'open-settings') {
+    settingsDraft = { level: panelLevel, pageCount: panelPageCount, currentPageOnly: panelCurrentPageOnly };
+    settingsOverlayOpen = true;
+    renderDrawerResult();
+    return;
+  }
+  if (action === 'close-settings' || action === 'cancel-settings') {
+    settingsOverlayOpen = false;
+    renderDrawerResult();
+    return;
+  }
+  if (action === 'save-settings') {
+    const levelChanged = settingsDraft.level !== panelLevel;
+    panelLevel = settingsDraft.level;
+    panelPageCount = settingsDraft.pageCount;
+    panelCurrentPageOnly = settingsDraft.currentPageOnly;
+    settingsOverlayOpen = false;
+    if (levelChanged) onStartCapture();
+    else renderDrawerResult();
+    return;
+  }
+  if (action === 'pick-level') {
+    if (scope === 'start') { panelLevel = el.dataset.level; renderDrawerStart(); }
+    else { settingsDraft.level = el.dataset.level; renderDrawerResult(); }
+    return;
+  }
+  if (action === 'dec-pages' || action === 'inc-pages') {
+    const delta = action === 'inc-pages' ? 5 : -5;
+    if (scope === 'start') { panelPageCount = clampPageCount(panelPageCount + delta); renderDrawerStart(); }
+    else { settingsDraft.pageCount = clampPageCount(settingsDraft.pageCount + delta); renderDrawerResult(); }
+    return;
+  }
+  if (action === 'pick-tab') { resultTab = el.dataset.tab; renderDrawerResult(); return; }
+  if (action === 'speak') { speakWord(el.dataset.word); return; }
+  if (action === 'toggle-mark') { toggleMark(el.dataset.word); return; }
+  if (action === 'font-dec') { applyBodyFontSize(bodyFontSize - 1); return; }
+  if (action === 'font-inc') { applyBodyFontSize(bodyFontSize + 1); return; }
+  if (action === 'apikey-edit-toggle') { apiKeyEditOpen = !apiKeyEditOpen; rerenderCurrentView(); return; }
+  if (action === 'apikey-save') {
+    const input = drawerBody.querySelector('#readflow-apikey-input');
+    const value = input ? input.value.trim() : '';
+    if (!value) return;
+    chrome.storage.local.set({ apiKey: value }, () => {
+      currentApiKey = value;
+      apiKeyEditOpen = false;
+      rerenderCurrentView();
+    });
+    return;
+  }
+}
+
+function onDrawerChange(e) {
+  const el = e.target.closest('[data-action="toggle-current-page"]');
+  if (!el) return;
+  const scope = el.dataset.scope;
+  if (scope === 'start') { panelCurrentPageOnly = el.checked; renderDrawerStart(); }
+  else { settingsDraft.currentPageOnly = el.checked; renderDrawerResult(); }
+}
+
+// ── Vocab card interactions ───────────────────────────────────────
+function speakWord(word) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(word);
+  utterance.lang = 'en-US';
+  window.speechSynthesis.speak(utterance);
+}
+
+// Reuses the existing highlight-in-book-text mechanism (toggleHighlightRequest,
+// handled by applyHighlightToggle below in every frame) rather than inventing
+// a separate "starred word" concept. markedWords here just mirrors what this
+// frame has already asked reader frames to toggle, purely to drive the
+// button's on/off style — no round-trip needed to know the current state.
+function toggleMark(word) {
+  const key = word.toLowerCase();
+  if (markedWords.has(key)) markedWords.delete(key);
+  else markedWords.add(key);
+  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word });
+  renderDrawerResult();
+}
+
+// ── Capture flow ───────────────────────────────────────────────────
 const CAPTURE_TIMEOUT_MS = 6000;
 let captureTimeoutId = null;
 
 function onStartCapture() {
-  const currentPageOnly = document.getElementById('readflow-current-page-only').checked;
-  const input = document.getElementById('readflow-page-count');
-  const pageCount = currentPageOnly ? 1 : Math.max(1, Math.min(100, parseInt(input.value, 10) || 10));
+  const pageCount = panelCurrentPageOnly ? 1 : panelPageCount;
 
   if (DEBUG_MODE) {
     runDebugCapture(pageCount);
@@ -247,27 +577,30 @@ function onStartCapture() {
 
   clearTimeout(captureTimeoutId);
   captureTimeoutId = setTimeout(() => {
-    renderDrawerResult('<span class="readflow-error">無法自動翻頁，請確認目前在書本閱讀頁面內，然後重新分析。</span>');
+    renderDrawerError('無法自動翻頁，請確認目前在書本閱讀頁面內，然後重新分析。');
     setDrawerOpen(true);
   }, CAPTURE_TIMEOUT_MS);
 }
 
 // ── Debug mode: local, fake capture + analysis ──────────────────────
 // Runs entirely in the top frame — no broadcast, no real frames, no
-// chrome.runtime — so the whole drawer flow works on any page. A short
-// per-page delay keeps the loading state visibly ticking instead of
-// jumping straight to the result, which is what actually exercises
-// renderDrawerLoading and the "(n/total)" text.
-// ReadFlow analyzes English books for a Chinese-speaking reader (see
-// background.js's CHAPTER_SYSTEM_PROMPT) — captured pages are English
-// text, and the analysis explains English vocab/grammar in Chinese.
-// These fake pages and the fake result below follow that same shape.
+// chrome.runtime — so the whole drawer flow works on any page.
 const DEBUG_PAGES = [
   '(Debug page 1) The rain drummed steadily on the tin awning above the shop. She pushed open the door beneath a faded poster, and the little bell overhead gave a soft jingle. The shopkeeper glanced up at her, then dropped his gaze again, absorbed in the pile of secondhand books behind the counter.',
   "(Debug page 2) It was purely by chance that she stumbled upon the notebook, its cover worn and mottled with age. Tucked between the pages was a letter that had never been sent, the ink smudged by damp, and something about it left her with a lingering, wistful sadness.",
   "(Debug page 3) She folded the letter carefully and slipped it back where she had found it, though she couldn't bring herself to return the notebook to the shelf. Even though the rain outside showed no sign of letting up, she decided to stay a little longer and finish reading it.",
   '(Debug page 4) Toward the final pages, the handwriting suddenly grew neat and deliberate, as if someone else had taken over the writing. That passage mentioned an address she had never heard of, along with a date just three days away.',
   '(Debug page 5) "So, are you going to buy it?" the shopkeeper finally asked. She looked up, hesitated for a moment, then nodded. The bell rang once more — this time, as she pushed the door open to leave.',
+];
+
+const DEBUG_VOCAB = [
+  { word: 'mottled', pos: 'adj.', zh: '表面帶有斑駁色塊、不均勻，這裡形容筆記本封面因年代久遠產生的痕跡，可理解為「舊舊髒髒、顏色不均」。', quote: '原文："its cover worn and mottled with age"' },
+  { word: 'wistful', pos: 'adj.', zh: '帶著淡淡感傷與懷念、若有所失的心情，語氣比 sad 更含蓄。', quote: '原文："left her with a lingering, wistful sadness"' },
+  { word: 'deliberate', pos: 'adj.', zh: '這裡指刻意、工整、經過用心書寫，不是「延遲」的意思。', quote: '原文："grew neat and deliberate"' },
+];
+
+const DEBUG_GRAMMAR = [
+  { frag: 'as if someone else had taken over the writing', note: '`as if` 後面接過去完成式（had + p.p.），用來描述「其實未必是事實、只是看起來像」的假設情境，這種語氣在描述懷疑或推測時很常見。', rewrite: 'it looked like someone else had written it' },
 ];
 
 function runDebugCapture(pageCount) {
@@ -294,54 +627,32 @@ function runDebugCapture(pageCount) {
 
 function onDebugCaptureFinished(pages, reachedEnd) {
   if (DEBUG_FORCE_ERROR) {
-    renderDrawerResult('<span class="readflow-error">Error: (Debug 模擬) 無法連線至 Gemini，請稍後再試</span>');
+    renderDrawerError('(Debug 模擬) 無法連線至 Gemini，請稍後再試');
     setDrawerOpen(true);
     return;
   }
 
-  const note = reachedEnd
-    ? '<p class="readflow-note">已到達本書結尾，以下為已收集的內容</p>'
-    : '';
-  const debugEcho = pages
-    .map((p, i) => `* 第 ${i + 1} 頁：\`${p.slice(0, 30)}${p.length > 30 ? '…' : ''}\``)
-    .join('\n');
-  const fakeMarkdown = `**📖 章節大綱 (Outline)**
-主角在雨夜舊書店中，意外發現一本封面斑駁的筆記本，裡頭夾著一封從未寄出的信，字跡因潮濕而暈染，讀來帶著一絲惆悵；隨著她繼續翻閱，某段文字忽然變得工整，像是另一人接手寫下，暗示還有未解的伏筆等著揭曉。
-
-**📚 困難生字 (Difficult Vocabulary)**
-* **mottled**（adj. 形容詞）：表面帶有斑駁色塊、不均勻，原文用來形容筆記本封面因年代久遠產生的痕跡（"its cover worn and mottled with age"），可以理解為「舊舊髒髒、顏色不均」。
-* **wistful**（adj. 形容詞）：帶著淡淡感傷與懷念、若有所失的心情，原文 "left her with a lingering, wistful sadness" 描述她讀完信後的感受，語氣比 sad 更含蓄。
-* **deliberate**（adj. 形容詞）：這裡指刻意、工整、經過用心書寫，不是「延遲」的意思；原文 "grew neat and deliberate" 形容字跡忽然變得端正、像是特意寫成的。
-
-**📝 困難文法 (Difficult Grammar)**
-* \`as if someone else had taken over the writing\`：\`as if\` 後面接過去完成式（had + p.p.），用來描述「其實未必是事實、只是看起來像」的假設情境——字跡看起來像換了另一個人寫，但實際上未必真的換了人，這種語氣在描述懷疑或推測時很常見。
-
-**Debug：實際擷取到的內容**
-${debugEcho}`;
-  const usage = '<p class="readflow-usage">Token 用量（Debug 模擬）：輸入 812 ／ 輸出 356 ／ 總計 1168</p>';
-  renderDrawerResult(note + addHighlightButtons(renderMarkdown(fakeMarkdown)) + usage);
+  lastResult = {
+    scene: '清晨的港口，船隻靜止停泊，主角例行清點船數，這是她每週自發的習慣。',
+    points: [
+      '敘事從環境寫到人物：先給靜止的港口，再帶出無人要求、也無人在意的清點行為。',
+      '口袋裡的帳本快寫滿了，是這段唯一往前推的物件線索。',
+      '在整體脈絡中屬於開場鋪陳，建立孤獨與規律，尚未進入衝突。',
+      `（Debug）已擷取 ${pages.length} 頁內容。`,
+    ],
+    vocab: DEBUG_VOCAB,
+    grammar: DEBUG_GRAMMAR,
+  };
+  lastMeta = {
+    pageCount: pages.length,
+    level: panelLevel,
+    reachedEnd,
+    usage: { promptTokenCount: 812, candidatesTokenCount: 356, totalTokenCount: 1168 },
+    debug: true,
+  };
+  resultTab = 'outline';
+  renderDrawerResult();
   setDrawerOpen(true);
-}
-
-function renderDrawerLoading(current, total) {
-  drawerBody.innerHTML = `<span class="readflow-loading">正在翻頁擷取內容 (${current}/${total})</span>`;
-}
-
-function renderDrawerResult(html) {
-  drawerBody.innerHTML = `
-    <div class="readflow-panel-controls">
-      <button class="readflow-font-size-btn" data-delta="-1" title="縮小文字">A－</button>
-      <button class="readflow-font-size-btn" data-delta="1" title="放大文字">A＋</button>
-      <button class="readflow-panel-restart" title="重新分析">🔄</button>
-    </div>
-    <div class="readflow-panel-body"></div>
-  `;
-  drawerBody.querySelector('.readflow-panel-restart').addEventListener('click', renderDrawerInput);
-  drawerBody.querySelectorAll('.readflow-font-size-btn').forEach((btn) => {
-    btn.addEventListener('click', () => applyBodyFontSize(bodyFontSize + parseInt(btn.dataset.delta, 10)));
-  });
-  drawerBody.querySelector('.readflow-panel-body').innerHTML = html;
-  applyBodyFontSize(bodyFontSize);
 }
 
 function broadcastToDescendantFrames(win, message, depth = 0) {
@@ -357,26 +668,6 @@ function broadcastToDescendantFrames(win, message, depth = 0) {
   }
 }
 
-// Vocab entries render as "**word**：explanation" (see CHAPTER_SYSTEM_PROMPT),
-// which renderMarkdown turns into "<li><strong>word</strong>：...". Anchoring
-// to <li><strong> keeps the button on the vocab word itself, not on any bold
-// sub-label (解釋／例句語境／白話理解...) Gemini adds further into the same
-// list item. Grammar entries use `code` spans instead, so this only ever
-// matches vocab.
-function addHighlightButtons(html) {
-  return html.replace(/(<li>)<strong>([^<]+)<\/strong>([^：<]*)：/g, (match, li, word, betweenText) => {
-    const safeWord = word.replace(/"/g, '&quot;');
-    return `${li}<strong>${word}</strong>${betweenText}： <button class="readflow-highlight-btn" data-word="${safeWord}">畫記</button>`;
-  });
-}
-
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.readflow-highlight-btn');
-  if (!btn) return;
-  btn.classList.toggle('active');
-  broadcastToDescendantFrames(window, { source: 'readflow', type: 'toggleHighlightRequest', word: btn.dataset.word });
-});
-
 function updateLoadingProgress(current, total) {
   clearTimeout(captureTimeoutId);
   if (!drawerBody) return;
@@ -387,27 +678,30 @@ function onCaptureFinished(pages, reachedEnd) {
   clearTimeout(captureTimeoutId);
   chrome.storage.local.get(['apiKey'], ({ apiKey }) => {
     if (!apiKey) {
-      renderDrawerResult('<span class="readflow-error">No API key. Click the ReadFlow icon in the toolbar to add one.</span>');
+      renderDrawerError('尚未設定 Gemini API Key，請在上方「設定」中新增。');
       setDrawerOpen(true);
       return;
     }
 
     chrome.runtime.sendMessage(
-      { type: 'analyzeChapter', pages, apiKey },
+      { type: 'analyzeChapter', pages, apiKey, level: panelLevel },
       (response) => {
         if (chrome.runtime.lastError || response?.error) {
           const msg = response?.error || chrome.runtime.lastError?.message;
-          renderDrawerResult(`<span class="readflow-error">Error: ${msg}</span>`);
+          renderDrawerError(`Error: ${msg}`);
           setDrawerOpen(true);
           return;
         }
-        const note = reachedEnd
-          ? '<p class="readflow-note">已到達本書結尾，以下為已收集的內容</p>'
-          : '';
-        const usage = response.usage
-          ? `<p class="readflow-usage">Token 用量：輸入 ${response.usage.promptTokenCount} ／ 輸出 ${response.usage.candidatesTokenCount} ／ 總計 ${response.usage.totalTokenCount}</p>`
-          : '';
-        renderDrawerResult(note + addHighlightButtons(renderMarkdown(response.result)) + usage);
+        lastResult = response.result;
+        lastMeta = {
+          pageCount: pages.length,
+          level: panelLevel,
+          reachedEnd,
+          usage: response.usage,
+          debug: false,
+        };
+        resultTab = 'outline';
+        renderDrawerResult();
         setDrawerOpen(true);
       }
     );
@@ -438,12 +732,6 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// Guards against a second startChapterCapture arriving while a capture
-// is already running in this frame (e.g. the user reopens the drawer
-// mid-capture and hits "開始分析" again) — two concurrent loops would
-// interleave forward/backward clicks and leave the book on the wrong
-// page. The frame just ignores the second request; only one capture
-// per frame runs at a time.
 let capturing = false;
 
 function handleStartChapterCapture(pageCount) {
@@ -602,4 +890,8 @@ function notifyProgress(current, total) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = { clampPageCount, computeTabCounts, maskApiKey, escapeHtml };
 }
